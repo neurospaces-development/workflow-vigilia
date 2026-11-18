@@ -4054,10 +4054,13 @@ sub ct_run_complete
 
     $execution_result ||= {};
 
-    # If requested, wait for command termination and compare its status.
+    # Runtime assertions apply only to executors that run the command.
 
-    $execution_result
-	= $command_test->check_exit_code($executor, $execution_result);
+    if ($executor->ex_supports_runtime_assertions())
+    {
+	$execution_result
+	    = $command_test->check_exit_code($executor, $execution_result);
+    }
 
     # process errors
 
@@ -8218,6 +8221,17 @@ sub new
 
 
 #
+# Runtime assertions are supported by an executor that executes commands.
+# Non-executing output classes override this capability.
+#
+
+sub ex_supports_runtime_assertions
+{
+    return 1;
+}
+
+
+#
 # Create the infrastructure for keeping module test results.
 #
 # For a base executor, this is currently a no-op.
@@ -9733,6 +9747,14 @@ package Heterarch::Test::Output;
 #
 
 our @ISA = ("Heterarch::Test::Executor");
+
+
+# Output processors inspect specifications rather than execute commands.
+
+sub ex_supports_runtime_assertions
+{
+    return 0;
+}
 
 
 package Heterarch::Test::Output::Summarizer;
