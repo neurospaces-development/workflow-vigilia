@@ -198,6 +198,9 @@ options:
       };
 
 
+# Console geometry is fixed when these configurations are constructed.
+my $global_console_width = Heterarch::Test::Reporting::_get_terminal_width();
+
 my $global_console_window_configuration
     = bless(
 	    {
@@ -211,62 +214,62 @@ my $global_console_window_configuration
 							"suffix" => 'Complete',
 							"total" => -1,
 						       },
-				"length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				"length" => $global_console_width,
 				"line_number" => 0,
 				"prompt" => "   Progress: ",
 			       },
 	     "message_module" => {
 				  "formatter" => "cw_note",
-				  "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				  "length" => $global_console_width,
 				  "line_number" => 2,
 				  "prompt" => "     Module: ",
 				 },
 	     "message_harnessing" => {
 				      "formatter" => "cw_note",
-				      "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				      "length" => $global_console_width,
 				      "line_number" => 3,
 				      "prompt" => "    Harness: ",
 				     },
 	     "message_command" => {
 				   "formatter" => "cw_note",
-				   "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				   "length" => $global_console_width,
 				   "line_number" => 4,
 				   "prompt" => "    Command: ",
 				  },
 	     "message_test" => {
 				"formatter" => "cw_note",
-				"length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				"length" => $global_console_width,
 				"line_number" => 5,
 				"prompt" => "       Test: ",
 			       },
 	     "message_details" => {
 				   "formatter" => "cw_note",
-				   "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				   "length" => $global_console_width,
 				   "line_number" => 6,
 				   "prompt" => "    Details: ",
 				  },
 	     "message_info" => {
 				"formatter" => "cw_note",
-				"length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				"length" => $global_console_width,
 				"line_number" => 8,
 				"prompt" => "Information: ",
 			       },
 	     "message_warning" => {
 				   "formatter" => "cw_note",
-				   "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				   "length" => $global_console_width,
 				   "line_number" => 10,
 				   "prompt" => "    Warning: ",
 				  },
 	     "message_error" => {
 				 "formatter" => "cw_note",
-				 "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				 "length" => $global_console_width,
 				 "line_number" => 11,
 				 "prompt" => " Last Error: ",
 				},
 	     "end" => {
 		       "enabled" => "yes",
 		       "formatter" => "cw_note",
-		       "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+		       "length" => $global_console_width,
 		       "line_number" => 12,
 		       "prompt" => "   Finished: ",
 		      },
@@ -285,32 +288,32 @@ my $global_console_window_library_configuration
 							"suffix" => 'Complete',
 							"total" => -1,
 						       },
-				"length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				"length" => $global_console_width,
 				"line_number" => 0,
 				"prompt" => "   Progress: ",
 			       },
 	     "message_info" => {
 				"formatter" => "cw_note",
-				"length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				"length" => $global_console_width,
 				"line_number" => 1,
 				"prompt" => "Information: ",
 			       },
 	     "message_warning" => {
 				   "formatter" => "cw_note",
-				   "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				   "length" => $global_console_width,
 				   "line_number" => 2,
 				   "prompt" => "    Warning: ",
 				  },
 	     "message_error" => {
 				 "formatter" => "cw_note",
-				 "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+				 "length" => $global_console_width,
 				 "line_number" => 3,
 				 "prompt" => "      Error: ",
 				},
 	     "end" => {
 		       "enabled" => "yes",
 		       "formatter" => "cw_note",
-		       "length" => Heterarch::Test::Reporting::_get_terminal_width(),
+		       "length" => $global_console_width,
 		       "line_number" => 4,
 		       "prompt" => "   Finished: ",
 		      },
@@ -14253,38 +14256,29 @@ sub _differences_report
 
 sub _get_terminal_width
 {
-    # prefer the use of Term::ReadKey
+    # Query only the kernel's terminal geometry.  Term::ReadKey's
+    # GetTerminalSize() can fall back to resize, which waits for a reply
+    # from a terminal emulator even when running inside an Expect pty.
 
-    eval
+    if (-t STDIN && -t STDOUT)
     {
-        require Term::ReadKey;
-        Term::ReadKey->import(qw(GetTerminalSize));
+        my $size = `stty size 2>/dev/null`;
 
-        my $width = GetTerminalSize(*STDOUT);
-        return $width if defined $width && $width > 0;
-    };
-
-    # try regular stty
-
-    my $width = `stty size 2>/dev/null`;
-
-    if ($width =~ /^\s*\d+\s+(\d+)\s*$/)
-    {
-        return $1;
+        if ($? == 0 && $size =~ /^\s*\d+\s+(\d+)\s*$/ && $1 > 0)
+        {
+            return $1;
+        }
     }
 
-    # try environment COLUMNS
+    # Use a positive configured width or a deterministic default when
+    # terminal geometry is unavailable (including redirected output).
 
-    if ($ENV{COLUMNS} && $ENV{COLUMNS} =~ /^\d+$/)
+    if (defined $ENV{COLUMNS} && $ENV{COLUMNS} =~ /^\d+$/ && $ENV{COLUMNS} > 0)
     {
         return $ENV{COLUMNS};
     }
 
-    # nothing sensible is available, use a sensible default
-
-    my $default = 120;
-
-    return $default;
+    return 120;
 }
 
 
