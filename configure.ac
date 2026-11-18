@@ -232,9 +232,22 @@ AC_MSG_CHECKING([Python prefix is ])
 
 # determine the test library to install
 
-TEST_SPECIFICATION_FILES=`/bin/echo -n "vigilia/introduction.html " && find vigilia/specifications -name "*.t" | perl -pe 's/\n/ /g' && find vigilia/specifications/strings -name "*.txt" | perl -pe 's/\n/ /g' && find vigilia/data -name "*.yml" && find vigilia/specifications -name "*.yml" | perl -pe 's/\n/ /g'`
-AC_SUBST(TEST_SPECIFICATION_FILES)
+TEST_SPECIFICATION_FILES=`(
+    echo vigilia/introduction.html
 
+    find vigilia/specifications -name "*.t"
+
+    find vigilia/specifications/strings -name "*.txt"
+
+    if test -d vigilia/data; then
+        find vigilia/data -name "*.yml"
+    fi
+
+    find vigilia/specifications -name "*.yml"
+
+) | perl -pe 's/\n/ /g'`
+
+AC_SUBST(TEST_SPECIFICATION_FILES)
 
 AC_CONFIG_FILES([Makefile
 		perl/Makefile])
