@@ -7434,11 +7434,28 @@ sub _docker_preparer
 	    return \ '_docker_preparer image prune failed';
 	}
 
-	system "$docker_command_selected build --tag $name_image --file $dockerfile .";
+	# Preserve Docker build diagnostics in all console modes.
+	local $ENV{BUILDKIT_PROGRESS} = 'plain';
+	my $build_command = "$docker_command_no_redirect build --tag $name_image --file $dockerfile .";
+	my $build_output = `$build_command 2>&1`;
+	my $build_status = $?;
+	my $build_errno = "$!";
 
-	if ($?)
+	if (!$build_status && $docker_command_selected eq $docker_command_no_redirect)
 	{
-	    return \ "_docker_preparer ($docker_command_selected) build and tag ($name_image), based on dockerfile ($dockerfile), failed";
+	    print $build_output if defined $build_output;
+	}
+
+	if ($build_status)
+	{
+	    my $status = $build_status == -1
+	        ? "could not execute: $build_errno"
+	        : ($build_status & 127 ? "signal " . ($build_status & 127) : "exit status " . ($build_status >> 8));
+
+	    my $error = "_docker_preparer ($build_command) build and tag ($name_image), based on dockerfile ($dockerfile), failed ($status)\n";
+	    $error .= defined $build_output && length $build_output ? $build_output : "(no Docker build output)\n";
+
+	    return \ $error;
 
 	    #t *** Preparing the Docker Container module '20_vigilia/15_docker_creator.t' (create the Docker image (vigilia_test_image) and start it as a container (vigilia_test_container) with identifier (docker_harness_2) for running the tests)
 
