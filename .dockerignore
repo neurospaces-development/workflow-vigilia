@@ -1,0 +1,24 @@
+# Volatile workflow execution data
+
+**/*-volatile-data
+**/cache
+**/secret-tokens
+**/AI-file-cache
+
+# Generated test reports and documentation
+
+report_*/
+vigilia/html/
+
+# Editor backup files
+
+**/*~
+**/*.orig
+
+# Generated installation state
+
+neurospaces_cpan_modules
+
+# Autotools cache
+
+autom4te.cache/
