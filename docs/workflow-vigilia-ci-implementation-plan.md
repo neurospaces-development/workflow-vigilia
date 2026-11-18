@@ -2,22 +2,36 @@
 
 Stepwise implementation and verification plan
 
-Version 0.1  •  18 November 2026  •  Proposed for implementation
+Version 0.2  •  18 November 2026  •  Proposed for implementation
 
 ## Objective
 
-Run the existing regression tests of both tools on GitHub Actions and GitLab CI/CD, using a common local entry point. Retain test evidence on success and failure, then introduce structured CI reporting without migrating the existing test specifications.
+Run the existing regression tests of both tools on GitHub Actions and GitLab CI/CD, using a common local entry point. Retain native test evidence on success and failure, without migrating test specifications or adding a dependency on an external testing or reporting framework.
 
 ## Architecture and ownership
 
 ```text
-GitHub Actions / GitLab CI  →  ci/test.sh
-    →  Automake make check → run_harness.sh → vigilia
-    →  existing specifications (workflow, vigilia, other tools)
-    →  logs + report.yml → CI artifacts
+       Local CLI          GitHub Actions          GitLab CI/CD
+           |                    |                      |
+           +--------------------+----------------------+
+                                |
+                           ci/test.sh
+                +---------------+---------------+
+                |                               |
+       make check / run_harness.sh      project-workflow command
+       (engine regression tests)        (downstream, optional)
+                |                               |
+                +---------------+---------------+
+                                |
+                             vigilia
+                                |
+             Existing test specifications and assertions
+                    Local / Docker / SSH / QEMU
+                                |
+                Exit status + report.yml + logs
 ```
 
-CI owns triggering, runners and merge policy; workflow owns project execution and environment orchestration; vigilia owns test assertions and results. The harness is also used to test workflow itself: no mandatory workflow invocation is needed above the harness in the first iteration.
+CI owns triggering, runners and merge policy; workflow owns process knowledge and environment orchestration; vigilia owns product knowledge, test assertions and results. The engine regression suite uses the existing Automake harness directly. Downstream applications may orchestrate vigilia through workflow. Both paths preserve failure status and native evidence; reporting adapters are optional (Phases 7–8).
 
 ## Implementation roadmap
 
@@ -27,10 +41,12 @@ CI owns triggering, runners and merge policy; workflow owns project execution an
 | 2 | Common scripts and trustworthy exit status | P0 |
 | 3 | GitHub Actions pilot | P0 |
 | 4 | GitLab CI/CD pilot | P0 |
-| 5 | JUnit reporting and evidence validation | P1 |
-| 6 | Container matrix, merge gates, reuse | P1/P2 |
+| 5 | Native evidence and report validation | P0 |
+| 6 | Container matrix, merge gates, reuse | P1 |
+| 7 | Native Markdown summaries | P2 / optional |
+| 8 | JUnit XML interoperability | P3 / optional |
 
-Execution order: 1 → 2 → 3/4 (either order) → 5 → 6. Maintain one small reviewable commit per phase; do not make CI a required merge gate until a deliberately failing test has been detected.
+Execution order: 1 → 2 → 3/4 (either order) → 5 → 6. Phases 7–8 are independent optional extensions after the native evidence contract is stable. Do not require merge checks until deliberate failures are detected.
 
 # Phase 1  /  Establish the baseline
 
@@ -127,6 +143,7 @@ export VIGILIA_REPORT_DIR="$PWD/ci-results"
 mkdir -p "$VIGILIA_REPORT_DIR"
 # Remove stale evidence from previous invocations.
 rm -f ci-results/{report.yml,test-suite.log,run_harness.log,run.log}
+rm -f ci-results/{exit-code.txt,environment.txt,summary.md,junit.xml}
 rm -f report.yml test-suite.log run_harness.log
 collect() {
     local rc=$?
@@ -161,7 +178,7 @@ Commit scripts as executable: chmod +x ci/*.sh run_harness.sh. Add ci-results/ t
 | Malformed fixture / missing dependency | Nonzero exit; diagnostic retained even without report. |
 | No selected tests; timeout / interruption | Reject zero tests; investigate timeout and canceled-run cleanup. |
 
-Implement the zero-test guard using parsed report counters once their schema is confirmed. If report writing fails or exit status is wrong, fix the relevant vigilia/harness behavior before merge gating. Never use grep on colored output to determine pass/fail.
+Implement the zero-test guard in Phase 2 using parsed native report counters once their schema is confirmed, and require it before starting the CI pilots. Phase 5 expands validation. The script above is a starting point, not the completed guard. If report writing fails or exit status is wrong, fix the relevant vigilia/harness behavior before merge gating. Never use grep on colored output to determine pass/fail.
 
 EXIT GATE  —  Positive and negative controls agree at vigilia, make check and ci/test.sh layers. Run from a clean checkout, with no manual prompts.
 
@@ -262,40 +279,42 @@ The GitLab workflow rules control event selection, not engineering workflows. Br
 
 EXIT GATE  —  Same selected suite and expected pass/fail outcome on both services; artifacts accessible after ordinary failure. No required merge gate yet.
 
-# Phase 5  /  Structured test evidence
+# Phase 5  /  Native test evidence
 
-Owner: vigilia maintainer. Deliverable: structured reporting adapter or native exporter, with regression tests. Do not block the initial CI pilot on JUnit support.
+Owner: vigilia maintainer. Deliverables: documented native report contract, validator and fixtures. No external reporting framework or JUnit XML is required.
 
 ## 5.1  Inspect the existing report.yml
 
 ☐  Capture representative reports for pass, assertion failure, disabled test and harness failure. Identify the schema and stable test IDs, execution context, counters, error details and duration. Verify that report.yml is a results report, rather than the specification dumps produced by --dump-json / --dump-yaml [5].
 
-☐  Add a small parser/validator and zero-test check to ci/test.sh (including failure handling). Check counters against test cases; distinguish no tests, incomplete execution and complete suites. Never fabricate passed tests when a report is missing.
+☐  Establish a safe YAML parser/validator (using existing dependencies) and verify the zero-test guard introduced in Phase 2. Check counters against individual cases; distinguish no tests, incomplete execution and complete suites. Never fabricate passed tests when a report is missing.
 
-## 5.2  Implement and test JUnit XML export
+## 5.2  Reporting architecture
 
-First implement ci/report-to-junit.py to convert report.yml using a safe YAML loader and an XML library, or preferably introduce a native vigilia result exporter once the schema is stable. Proposed interface: vigilia --report-junit PATH (new option; not currently verified/available). Generate from the executed result structure, not from test specifications or an independent rerun.
-
-| Result mapping | Required behavior |
-| --- | --- |
-| Suite / case | Stable module + command + assertion identity; unique within suite. |
-| Pass / fail / error / skip | Encode failure, error and skipped elements distinctly; include useful diagnostic text. |
-| Counters and timing | Consistent totals and durations in seconds; XML escaping; no secrets. |
-| Incomplete run | Retain partial report as such, publish diagnostic; job must remain nonzero. |
-
-Invoke the converter during finalization even after test failure if report.yml is readable. Preserve the original nonzero status; fail an otherwise successful job if required report validation/export fails. Test conversion with checked-in fixtures and XML parsing.
-
-## 5.3  Publish the reports
-
-```yaml
-# Add under the existing GitLab job's artifacts: block
-reports:
-  junit: ci-results/junit.xml
+```text
+                          vigilia
+                             |
+                        report.yml
+                     (native results)
+                             |
+           +-----------------+------------------+
+           |                 |                  |
+     Native evidence     Markdown summary     JUnit XML
+       (required)          (optional)          (optional)
+           |                 |                  |
+     CI artifacts       GitHub job summary    GitLab test UI
+     logs / metadata    + generic artifact   + external tools
 ```
 
-On GitHub, retain the same XML artifact and optionally produce a $GITHUB_STEP_SUMMARY from it or adopt a reviewed JUnit reporting action. Do not grant write permissions or expose secrets to untrusted PR code. For HTML/PDF documentation, use a separate make vigilia-html / documented generation job and label it as generated documentation, not execution evidence.
+The exit status is the authoritative pipeline control signal. A missing, invalid, incomplete or empty native report must cause an otherwise successful job to fail. Preserve any original nonzero status and retain diagnostic evidence. Markdown and JUnit XML are derived views, never independent test executions or gate prerequisites.
 
-EXIT GATE  —  JUnit totals match report.yml and negative controls render correctly in GitLab; GitHub makes equivalent evidence available.
+## 5.3  Validate and publish native evidence
+
+☐  Archive report.yml, test-suite.log, run_harness.log, run.log, exit-code.txt and environment.txt on both platforms. Confirm the recorded outcome and test identity are consistent with the actual executed commit and profile. Test pass, failure, invalid YAML, missing report and zero tests with checked-in fixtures.
+
+☐  Keep HTML/PDF output available as native human-readable documentation or reports. Use a separate make vigilia-html / documented generation job where appropriate; do not present generated specification documentation as evidence of actual test execution.
+
+EXIT GATE  —  Native evidence is validated and available for both pipelines. A known failing test and an invalid or missing report produce nonzero status. No optional export is necessary to proceed.
 
 # Phase 6  /  Harden and extend
 
@@ -330,6 +349,32 @@ Keep ci/test.sh as a stable adapter. For downstream projects, optionally move pr
 
 EXIT GATE  —  Maintainers approve the merge gate, runner security and evidence policy. Future extensions use the same test contract.
 
+# Phases 7–8  /  Optional reporting adapters
+
+Owner: vigilia maintainer. Start only after the native evidence contract is stable. Both adapters consume report.yml without altering the test engine or requiring a rerun.
+
+## 7.1  Native Markdown summary (P2)
+
+☐  Optionally implement ci/report-to-markdown.py using the existing YAML parser. Show selected/executed counts, pass/fail/error/skip totals, failed test IDs and bounded diagnostic text. If evidence is missing, say so explicitly; redact secrets. Publish the Markdown file as a portable artifact and append it to GitHub's $GITHUB_STEP_SUMMARY in an always() step [10]. No JUnit or third-party reporting action is needed.
+
+EXIT GATE  —  If enabled, the summary agrees with report.yml for positive and negative controls; absence of the optional summary does not change the regression-test status.
+
+## 8.1  JUnit XML interoperability (P3)
+
+JUnit XML is an interchange format, not a dependency on the Java JUnit framework. It enables GitLab's native test-result UI and comparisons in merge requests [9]. It does not determine a pipeline's pass/fail status. Implement only when native CI visualization or external tool interoperability is requested.
+
+☐  If justified, implement ci/report-to-junit.py using the existing YAML parser and Python's standard XML library. Use stable unique test IDs, distinct failure/error/skipped elements, consistent totals and durations where available, and proper XML escaping. Test fixtures against the native report; do not invent results for incomplete runs. No Java, JUnit runtime or third-party reporting framework is required.
+
+```yaml
+# Optional: under the GitLab job's existing artifacts: block
+reports:
+  junit: ci-results/junit.xml
+```
+
+☐  Run enabled exporters after an ordinary failed test as well as a pass; publish diagnostics on export failures and preserve the test status. Remove stale export files before each run. Any reporting-specific quality gate must be separate and explicitly requested. Never upload untrusted output or secrets to external tools.
+
+EXIT GATE  —  If enabled, JUnit totals and identities agree with report.yml and GitLab displays the expected positive/negative controls. If deferred, record the decision; Phase 6 remains complete without either adapter.
+
 # Implementation register and references
 
 ## Suggested commit sequence
@@ -341,12 +386,14 @@ EXIT GATE  —  Maintainers approve the merge gate, runner security and evidence
 | 03 | test: enable noninteractive vigilia reporting | Status and YAML |
 | 04 | ci: add GitHub Actions | PR pilot |
 | 05 | ci: add GitLab pipeline | MR pilot |
-| 06 | test: validate and export JUnit results | Report fixtures |
+| 06 | test: validate native report contract | Report fixtures |
 | 07 | ci: add profiles, policy and maintainer guide | Merge gate review |
+| 08 | ci: add Markdown summary adapter (optional) | Summary fixtures |
+| 09 | ci: add JUnit XML adapter (optional) | XML fixtures / GitLab UI |
 
 ## Decisions and open issues
 
-Proposed choices: Ubuntu 24.04, Automake as initial entry point, linear console reporting, 60-minute job timeout, 30-day artifacts, and GitLab shell VM. These are defaults to confirm in Phase 1. Public master was inspected, but no exact private/local SHA was supplied and no full build or live CI run was performed. Dependency completeness, test coverage, runner prerequisites and report schema remain verification items. Do not infer successful execution from HTML generation or report upload.
+Proposed choices: Ubuntu 24.04, Automake as initial entry point, linear console reporting, 60-minute job timeout, 30-day artifacts, and GitLab shell VM. These are defaults to confirm in Phase 1. Public master was inspected, but no exact private/local SHA was supplied and no full build or live CI run was performed. Dependency completeness, test coverage, runner prerequisites and report schema remain verification items. JUnit XML and Markdown summaries are optional; native YAML evidence and exit status are the required interface. Do not infer successful execution from HTML generation or report upload.
 
 ## Source references
 
@@ -367,3 +414,5 @@ Proposed choices: Ubuntu 24.04, Automake as initial entry point, linear console 
 [8] GitLab workflow rules and YAML — https://docs.gitlab.com/ci/yaml/workflow/
 
 [9] GitLab JUnit reports — https://docs.gitlab.com/ci/testing/unit_test_reports/
+
+[10] GitHub job summaries — https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#adding-a-job-summary
