@@ -22,3 +22,7 @@ neurospaces_cpan_modules
 # Autotools cache
 
 autom4te.cache/
+
+# Source repository metadata
+
+.git
