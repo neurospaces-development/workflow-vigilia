@@ -75,7 +75,7 @@ def git_rewrite_completor(command, argv, analysis):
 def git_rewrite_help(command, argv):
     return f"""{command}: rewrite the commits in a branch and give them the current time for both author and commit date.
 
-    ``ARGV[0]``   The base branch name, i.e. the branch where the old branch is based on.
+    ``ARGV[0]``   The base branch name, i.e. the branch on which the old branch is currently based and on which the new branch will be based.
 
     ``ARGV[1]``   The old branch name.
 
