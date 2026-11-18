@@ -230,22 +230,32 @@ AC_MSG_CHECKING([Python prefix is ])
 
 # Checks for library functions.
 
-# determine the test library to install
+# Determine the test library to install.
+#
+# Exclude dynamically generated execution data, caches,
+# and secret token storage from the installation manifest.
 
 TEST_SPECIFICATION_FILES=`(
     echo vigilia/introduction.html
 
-    find vigilia/specifications -name "*.t"
-
-    find vigilia/specifications/strings -name "*.txt"
+    find vigilia/specifications \
+        -type d \( \
+            -name "*-volatile-data" \
+            -o -name "cache" \
+            -o -name "secret-tokens" \
+            -o -name "AI-file-cache" \
+        \) -prune \
+        -o -type f \( \
+            -name "*.t" \
+            -o -name "*.yml" \
+            -o -path "vigilia/specifications/strings/*.txt" \
+        \) -print
 
     if test -d vigilia/data; then
         find vigilia/data -name "*.yml"
     fi
 
-    find vigilia/specifications -name "*.yml"
-
-) | perl -pe 's/\n/ /g'`
+) | LC_ALL=C sort | perl -pe 's/\n/ /g'`
 
 AC_SUBST(TEST_SPECIFICATION_FILES)
 
