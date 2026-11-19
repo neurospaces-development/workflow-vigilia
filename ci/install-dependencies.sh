@@ -19,6 +19,7 @@ export DEBIAN_FRONTEND=noninteractive
     libinline-perl libinline-c-perl libipc-system-simple-perl libjson-perl \
     libnet-ip-perl libterm-readkey-perl libtoml-perl libyaml-pp-perl \
     libwww-perl libxml-parser-perl \
+    libtest-deep-perl libtest-number-delta-perl libproc-processtable-perl \
     screen unzip openssh-server sshpass tmux libfaketime
 
 # Bundled CPAN modules are installed by make install. Docker, when needed,
