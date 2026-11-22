@@ -30,6 +30,6 @@ comment: |+
   description: A single line description of all the tests for the given command.
   error: Gives the reason why this test command will always fail.
   numerical_compare: Allow small arithmetic differences during the comparison of the expected result with the produced result.
-  tag: An array of tags associated with this command.  These are matched with the tags given on the command line.
+  tags: An array of tags associated with this command.  These are matched with the tags given on the command line.
 
 description: help page of the configuration command

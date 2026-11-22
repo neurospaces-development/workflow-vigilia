@@ -58,7 +58,7 @@ command_tests:
           --show-command-tests         Show all the command definitions that would be run during test execution, including the input to those commands.
           --show-images                Show the docker images and containers that are referenced by the test harnesses.
           --show-modules               Show the selected test modules and their descriptions.
-          --tags                       Only test test modules that have been tagged with these tags (default: all tags).
+          --tags                       Repeatable tag filter (OR); untagged children inherit selection (default: all).
           --timeout-multiplier         Multiply all timeout values with this constant.
           --timings                    Add timing information about the tests to the report.
           --trace                      Enable tracing using the given unix shell command (eg. 'strace -f', 'retsnoop', 'RRLOG=/tmp/rr.log rr record' or syzbot/syzkaller, https://hackerbikepacker.com/syzbot).
@@ -79,6 +79,6 @@ comment: |+
   description: A single line description of all the tests for the given command.
   error: Gives the reason why this test command will always fail.
   numerical_compare: Allow small arithmetic differences during the comparison of the expected result with the produced result.
-  tag: An array of tags associated with this command.  These are matched with the tags given on the command line.
+  tags: An array of tags associated with this command.  These are matched with the tags given on the command line.
 
 description: help page of the help command

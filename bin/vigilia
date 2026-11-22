@@ -138,7 +138,7 @@ options:
     --show-command-tests         Show all the command definitions that would be run during test execution, including the input to those commands.
     --show-images                Show the docker images and containers that are referenced by the test harnesses.
     --show-modules               Show the selected test modules and their descriptions.
-    --tags                       Only test test modules that have been tagged with these tags (default: all tags).
+    --tags                       Repeatable tag filter (OR); untagged children inherit selection (default: all).
     --timeout-multiplier         Multiply all timeout values with this constant.
     --timings                    Add timing information about the tests to the report.
     --trace                      Enable tracing using the given unix shell command (eg. 'strace -f', 'retsnoop', 'RRLOG=/tmp/rr.log rr record' or syzbot/syzkaller, https://hackerbikepacker.com/syzbot).
@@ -865,7 +865,7 @@ disable: Gives the reason why this test command is disabled.
 description: A single line description of all the tests for the given command.
 error: Gives the reason why this test command will always fail.
 numerical_compare: Allow small arithmetic differences during the comparison of the expected result with the produced result.
-tag: An array of tags associated with this command.  These are matched with the tags given on the command line.
+tags: An array of tags associated with this command.  These are matched with the tags given on the command line.
 
 ",
        command => "# <the command with its single space seperated arguments to be tested>",
@@ -884,7 +884,7 @@ error: Gives the reason why this command test will always fail.
 exit_code: The expected exit code of the tested command.  This assertion waits for the command to terminate and should therefore normally be used on its final command test.
 expected_output_file: The pathname of a file with the contents that is expected.
 read: The expected pseudo-terminal output of the command.  This stream combines STDOUT and STDERR.  A scalar is matched as literal text, including when it begins with a hyphen (for example '---').  The existing array form, for example read: [ '-re', 'pattern' ], selects a regular expression.  Use a mapping with an exact key, for example read: { exact: 'complete output\\n' }, to require equality with the complete remaining output stream.  An exact assertion waits for command termination and should be the first and final output assertion for that command.
-tag: An array of tags associated with this command test.  These are matched with the tags given on the command line.
+tags: An array of tags associated with this command test.  These are matched with the tags given on the command line.
 tester: A shell command that will be run after the command has produced output (likely to be combined with a wait keyword for reliability and reproducibility).
 timeout: An optional timeout after which the test will fail if the expected output is not seen yet.
 wait: An optional number of seconds to wait before attempting to read from STDIN of the command.
@@ -1703,7 +1703,7 @@ The 'docker' keyword defines:
 
 name: The name of the module, this must match with the pathname of the module.  It is used for error reporting.
 numerical_compare: Allow small arithmetic differences during the comparison of the expected result with the produced result.
-tag: An array of tags associated with this test module.  These are matched with the tags given on the command line.
+tags: An array of tags associated with this test module.  These are matched with the tags given on the command line.
 
 ";
     }
@@ -5538,9 +5538,7 @@ our $selected_output_levels;
 # A module needs an explicit matching tag when a filter is active. Untagged
 # descendants inherit selection; an explicitly tagged descendant narrows it.
 # Multiple requested tags have OR semantics. Duplicates have no effect.
-#
-# Keep "tag" as an alias for older specifications, but use "tags" (an array)
-# for all new specifications.
+# The only supported specification key is "tags", whose value is a YAML array.
 
 sub _tag_values
 {
@@ -5548,17 +5546,14 @@ sub _tag_values
 
     my $label = $element->{name} // $element->{description} // '<unnamed>';
 
-    die "Invalid tags for $label: both tag and tags are defined\n"
-        if exists $element->{tags} && exists $element->{tag};
+    # Reject the removed singular key rather than silently ignoring it. An
+    # unnoticed typo could otherwise execute an unintended set of tests.
+    die "Invalid tags for $label: 'tag' is unsupported; use 'tags' (YAML array)\n"
+        if exists $element->{tag};
 
-    my $tags = exists $element->{tags}
-        ? $element->{tags}
-        : $element->{tag};
+    return [] unless exists $element->{tags};
 
-    return [] unless defined $tags;
-
-    # Historical singular spelling permits a scalar or an array.
-    $tags = [ $tags ] if exists $element->{tag} && !ref $tags;
+    my $tags = $element->{tags};
 
     die "Invalid tags for $label: expected a YAML array\n"
         unless ref $tags eq 'ARRAY';
@@ -5579,9 +5574,11 @@ sub matches_tags
 
     my $parent_selected = shift // 0;
 
-    return ':all' unless scalar @$option_tags;
-
+    # Validate the schema even without --tags: obsolete "tag" must not be
+    # silently ignored during an unfiltered execution or inspection.
     my $tags = _tag_values($element);
+
+    return ':all' unless scalar @$option_tags;
 
     # Only descendants may inherit a selection. An untagged module is
     # deliberately excluded whenever --tags is supplied.

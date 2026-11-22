@@ -76,9 +76,9 @@ command_definitions:
 The module must explicitly match a requested tag. Untagged children inherit
 their selected parent's tags. Explicit child tags restrict selection at that
 level; they do **not** automatically union with parent tags. Multiple `--tags`
-options are alternatives (OR). Duplicate requested tags are harmless. The
-older singular `tag` is accepted as an alias, but should not be used for new
-specifications.
+options are alternatives (OR). Duplicate requested tags are harmless. Only
+`tags` is valid, and its value must be a YAML array. The removed singular `tag`
+key is rejected with an error, even without a tag filter.
 
 Inspection and documentation output also honor these tags; for example:
 

@@ -55,11 +55,11 @@ command_definitions:
         exit_code: 0
         timeout: 10
   - description: Manual-only command
-    tag: manual
+    tags: [manual]
     command: /bin/sh
     arguments: [-c, 'printf "manual\n" >> "$VIGILIA_TAG_TEST_MARKER"']
     command_tests:
-      - description: Legacy singular tag spelling on a command
+      - description: Canonical tags array on a command
         exit_code: 0
         timeout: 10
   - description: Tutorial-only assertion
@@ -67,7 +67,7 @@ command_definitions:
     arguments: [-c, 'printf "tutorial\n" >> "$VIGILIA_TAG_TEST_MARKER"']
     command_tests:
       - description: Tutorial assertion
-        tag: tutorial
+        tags: [tutorial]
         exit_code: 0
         timeout: 10
 YAML
@@ -101,15 +101,15 @@ command_definitions:
         timeout: 10
 YAML
 
-cat > "$work/specifications/legacy.t" <<'YAML'
+cat > "$work/specifications/secondary.t" <<'YAML'
 ---
-name: legacy.t
-description: Legacy scalar tag on a module
-tag: tutorial
+name: secondary.t
+description: Canonical tutorial tags on a second module
+tags: [tutorial]
 command_definitions:
   - description: Inherited tutorial command
     command: /bin/sh
-    arguments: [-c, 'printf "legacy-tutorial\n" >> "$VIGILIA_TAG_TEST_MARKER"']
+    arguments: [-c, 'printf "secondary-tutorial\n" >> "$VIGILIA_TAG_TEST_MARKER"']
     command_tests:
       - description: Tutorial module assertion
         exit_code: 0
@@ -201,5 +201,66 @@ rc=0
 (( rc != 0 )) || fail 'Malformed tags unexpectedly accepted'
 grep -q 'Invalid tags for invalid.t' "$work/invalid.log" ||
     fail 'Malformed tags did not produce a useful diagnostic'
+
+# The removed singular `tag` key must fail closed at every level, even for
+# unfiltered inspection. Otherwise stale metadata could widen test execution.
+for level in module command test; do
+    case "$level" in
+        module)
+            cat > "$work/specifications/deprecated.t" <<'YAML'
+---
+name: deprecated.t
+description: Unsupported singular module tag
+tag: tutorial
+command_definitions:
+  - description: Command must never execute
+    command: /bin/true
+    command_tests:
+      - description: Assertion must never execute
+        exit_code: 0
+YAML
+            ;;
+        command)
+            cat > "$work/specifications/deprecated.t" <<'YAML'
+---
+name: deprecated.t
+description: Unsupported singular command tag
+tags: [tutorial]
+command_definitions:
+  - description: Command must never execute
+    tag: tutorial
+    command: /bin/true
+    command_tests:
+      - description: Assertion must never execute
+        exit_code: 0
+YAML
+            ;;
+        test)
+            cat > "$work/specifications/deprecated.t" <<'YAML'
+---
+name: deprecated.t
+description: Unsupported singular assertion tag
+tags: [tutorial]
+command_definitions:
+  - description: Command must never execute
+    command: /bin/true
+    command_tests:
+      - description: Assertion must never execute
+        tag: tutorial
+        exit_code: 0
+YAML
+            ;;
+    esac
+    rc=0
+    "$vigilia" --config-filename "$work/vigilia.config" \
+        --console-type linear --reporting-directory "$work/report-removed-$level" \
+        --regex-selector 'deprecated\.t$' --show-modules \
+        > "$work/removed-$level.log" 2>&1 || rc=$?
+    (( rc != 0 )) || fail "Singular $level tag unexpectedly accepted"
+    grep -Fq "'tag' is unsupported; use 'tags' (YAML array)" \
+        "$work/removed-$level.log" ||
+        fail "Singular $level tag did not produce a migration diagnostic"
+done
+printf 'PASS removed singular tag spelling rejected at all hierarchy levels.\n'
 
 printf 'Vigilia hierarchical tag regression tests passed.\n'
