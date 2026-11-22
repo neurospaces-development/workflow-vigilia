@@ -97,7 +97,7 @@ jobs:
     timeout-minutes: 90
     env:
       CI_RESULTS_DIR: ${{ github.workspace }}/ci-results
-      VIGILIA_REGEX_SELECTOR: '^20_vigilia/30_docker[.]t$'
+      VIGILIA_REGEX_SELECTOR: '20_vigilia/30_docker[.]t$'
 
     steps:
       - name: Check out source

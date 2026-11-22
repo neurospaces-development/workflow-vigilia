@@ -116,7 +116,7 @@ vigilia-docker-pilot:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
-    VIGILIA_REGEX_SELECTOR: '^20_vigilia/30_docker[.]t$'
+    VIGILIA_REGEX_SELECTOR: '20_vigilia/30_docker[.]t$'
   script:
     - |
       set -euo pipefail

@@ -2,9 +2,12 @@
 
 The two pilot jobs deliberately select **only** the existing Perl module
 `20_vigilia/30_docker.t` using the same `VIGILIA_REGEX_SELECTOR` interface
-and `ci/test.sh` used by the other hosted jobs. They are not the `full` profile.
-Both pilots run only on `ci/regression-integration`, not untrusted merge
-requests. The normal `smoke` and `regression` jobs remain unchanged.
+and `ci/test.sh` used by the other hosted jobs. Vigilia matches this regex
+against the **full discovered pathname**, not the relative module name.
+Therefore the selector must not be anchored to the start of the relative
+path. These pilots are not the `full` profile; both run only on
+`ci/regression-integration`, not untrusted merge requests. The normal
+`smoke` and `regression` jobs remain unchanged.
 
 ## GitHub Actions
 
