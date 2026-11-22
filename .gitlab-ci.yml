@@ -120,6 +120,8 @@ vigilia-docker-pilot:
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
     VIGILIA_REGEX_SELECTOR: '20_vigilia/30_docker[.]t$'
+    # The fixed 172.18/16 subnet conflicts with a network in the DinD daemon.
+    VIGILIA_DOCKER_NETWORK_SUBNET: 'auto'
   script:
     - |
       set -euo pipefail
@@ -212,6 +214,7 @@ vigilia-docker-pilot:
       sudo -H -u vigilia-ci env \
         CI_RESULTS_DIR="$CI_RESULTS_DIR" \
         VIGILIA_REGEX_SELECTOR="$VIGILIA_REGEX_SELECTOR" \
+        VIGILIA_DOCKER_NETWORK_SUBNET="$VIGILIA_DOCKER_NETWORK_SUBNET" \
         DOCKER_HOST="$DOCKER_HOST" \
         DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
         DOCKER_CERT_PATH="$cert_dir" \

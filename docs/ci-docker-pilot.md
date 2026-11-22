@@ -36,6 +36,16 @@ supply `/certs/client/{ca,cert,key}.pem` on the runner; missing files or
 unreachable daemons are reported as explicit bootstrap failures. Artifacts
 are named `vigilia-docker-pilot-<job>-<sha>` and retained on failure.
 
+The Docker harness historically requests `172.18.0.0/16` for its
+`harness_network`, which can overlap the DinD daemon's existing address pools.
+The GitLab pilot sets `VIGILIA_DOCKER_NETWORK_SUBNET=auto` so the Docker
+Engine selects an available subnet; the default remains `172.18.0.0/16`
+locally for compatibility with specifications that assume fixed IP addresses.
+The harness checks network creation and container startup, reporting these as
+preparation errors rather than letting missing containers produce misleading
+assertion failures. Note that other specifications with hard-coded container
+addresses are **not** made portable to DinD by this pilot override.
+
 The GitLab DinD daemon has a different filesystem and network namespace from
 the job container. Basic `docker build`, `docker run` and `docker exec` calls
 can work, but tests using host bind mounts, Docker socket sharing, or direct

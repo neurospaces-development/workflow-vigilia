@@ -106,6 +106,9 @@ run_step cpan-regression bash ci/tests/test-cpan-install-strict.sh
 run_step artifact-regression python3 ci/tests/test-download-artifacts.py
 run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
 
+# Exercise Docker network allocation and failures without needing a daemon.
+run_step docker-network-regression python3 ci/tests/test-docker-network.py
+
 if (( build )); then
     run_step sudo-check sudo -n true
     run_step autogen ./autogen.sh

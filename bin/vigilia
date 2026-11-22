@@ -7643,10 +7643,6 @@ our $docker_command_with_redirect = "$docker_command_no_redirect >/dev/null 2>&1
 
 our $docker_command_selected;
 
-our $docker_network_created;
-
-our $docker_network_exists;
-
 
 sub _docker_compute_next_ip_address
 {
@@ -7797,80 +7793,47 @@ sub _docker_preparer
 
     }
 
-    # try to stop and remove a previous container of the same name
+    # Docker can assign a non-overlapping subnet automatically.  Keep the
+    # historical fixed subnet by default because some legacy specifications
+    # contain addresses in 172.18.0.0/16.  Isolated CI runners can opt into
+    # automatic allocation without changing the test specifications.
+    my $network_name = 'harness_network';
+    my $network_subnet = $ENV{VIGILIA_DOCKER_NETWORK_SUBNET} // '172.18.0.0/16';
 
-    my $docker_network
-	= {
-	   # containers => {
-	   # 		  default => "172.18.0.22",
-	   # 		 },
-	   name => "harness_network",
-	   subnet => "172.18.0.0/16",
-	  };
+    if ($network_subnet ne 'auto'
+        && $network_subnet !~ m{\A(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\z})
+    {
+        return \ "_docker_preparer: invalid VIGILIA_DOCKER_NETWORK_SUBNET '$network_subnet' (expected IPv4 CIDR or 'auto')";
+    }
 
     my $name_container = $harness_class->{docker}->{name_container};
-
-    my $ip_address_container = exists $harness_class->{ip_address_container} ? $harness_class->{ip_address_container} : "dynamic"; # "172.18.0.22";
-
-    if ($ip_address_container eq 'dynamic')
-    {
-	# my $assigned_ip_addresses = `docker inspect '$network_name' | jq -r 'map(.Containers[].IPv4Address)[]'`;
-
-	my $assigned_ip_addresses_containers
-	    = [
-	       map
-	       {
-		   chomp; $_;
-	       }
-	       sort
-	       `docker inspect '$docker_network->{name}' | jq -r 'map(.Containers[].IPv4Address)[]'`,
-	      ];
-
-	my $assigned_ip_addresses_gateway
-	    = [
-	       map
-	       {
-		   chomp; $_;
-	       }
-	       sort
-	       `docker inspect bridge | jq -r 'map(.IPAM.Config[].Gateway)[]'`,
-	      ];
-
-	$ip_address_container = _docker_compute_next_ip_address(
-								$docker_network,
-								[
-								 @$assigned_ip_addresses_containers,
-								 @$assigned_ip_addresses_gateway,
-								]
-							       );
-    }
 
     system "$docker_command_selected container stop -t1 $name_container";
     system "$docker_command_selected container rm $name_container";
 
-    # see: https://stackoverflow.com/questions/27937185/assign-static-ip-to-docker-container
+    # Inspect before creating: Docker network allocations vary between a
+    # local engine and GitLab's separate Docker-in-Docker daemon.
+    my $existing_subnet = `$docker_command_no_redirect network inspect --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' '$network_name' 2>/dev/null`;
+    my $network_exists = $? == 0;
+    chomp $existing_subnet;
 
-    my $docker_ip_address = $ip_address_container;
-
-    my $assigned_ip_network = `docker inspect harness_network | jq -r 'map(.IPAM.Config[].Subnet)[]'`;
-
-    chomp $assigned_ip_network;
-
-    if ($assigned_ip_network eq $docker_network->{subnet})
+    if ($network_exists)
     {
-	$docker_network_exists = "detected from `docker inspect harness_network | jq -r 'map(.IPAM.Config[].Subnet)[]'`";
+        if ($network_subnet ne 'auto' && $network_subnet ne $existing_subnet)
+        {
+            return \ "_docker_preparer: existing Docker network '$network_name' has subnet '$existing_subnet', expected '$network_subnet'";
+        }
     }
-
-    if (!$docker_network_created
-        && !$docker_network_exists)
+    else
     {
-	# system "yes | docker network prune";
+        my $subnet_option = $network_subnet eq 'auto' ? '' : " --subnet=$network_subnet";
+        my $create_command = "$docker_command_no_redirect network create$subnet_option '$network_name'";
+        my $create_output = `$create_command 2>&1`;
 
-	system "docker network create --subnet=$docker_network->{subnet} $docker_network->{name}";
-
-	# print "docker network: $!, $?\n";
-
-	$docker_network_created = 'yes';
+        if ($?)
+        {
+            return \ "_docker_preparer: Docker network creation failed ($create_command): $create_output";
+        }
     }
 
     # construct the configuration of shared directories / volumes
@@ -7904,11 +7867,22 @@ sub _docker_preparer
 
     my $name_image = $harness_class->{docker}->{name_image};
 
-    # system "$docker_command_selected run --net $docker_network->{name} --ip $docker_ip_address -d -t --name $name_container $name_image";
+    my $run_command = "$docker_command_no_redirect run --net $network_name -d -t $shared_volumes_option --name $name_container $name_image";
+    my $run_output = `$run_command 2>&1`;
 
-    system "$docker_command_selected run --net $docker_network->{name} -d -t $shared_volumes_option --name $name_container $name_image";
+    if ($?)
+    {
+        return \ "_docker_preparer: Docker container start failed ($run_command): $run_output";
+    }
 
-    my $this_ip_address = `docker inspect '$name_container' | jq -r 'map(.NetworkSettings.Networks.harness_network.IPAddress)[]'`;
+    print $run_output if $docker_command_selected eq $docker_command_no_redirect;
+
+    my $this_ip_address = `$docker_command_no_redirect inspect '$name_container' | jq -r 'map(.NetworkSettings.Networks.harness_network.IPAddress)[]'`;
+
+    if ($?)
+    {
+        return \ "_docker_preparer: cannot inspect the IP address of '$name_container'";
+    }
 
     chomp $this_ip_address;
 
