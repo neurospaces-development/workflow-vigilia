@@ -53,9 +53,13 @@ class RestClient:
         url = self.base + path
         if params:
             url += '?' + urllib.parse.urlencode(params)
+        # GitHub's Actions artifact ZIP endpoint is an API endpoint returning
+        # a redirect, not a binary endpoint. It rejects Accept: application/zip
+        # with HTTP 415. Use GitHub's API media type even for downloads.
+        accept = ('application/vnd.github+json' if self.provider == 'github'
+                  else ('application/zip' if download else 'application/json'))
         headers = {'User-Agent': 'workflow-vigilia-artifact-downloader/1',
-                   'Accept': 'application/vnd.github+json' if self.provider == 'github' and not download
-                   else ('application/json' if not download else 'application/zip')}
+                   'Accept': accept}
         if self.provider == 'github':
             headers['X-GitHub-Api-Version'] = '2022-11-28'
         if self.token:
@@ -79,9 +83,12 @@ class RestClient:
                             parsed.hostname in ('localhost', '127.0.0.1', '::1')):
                         raise ArtifactError('Unsafe artifact redirect') from exc
                     url = redirected
-                    # On all redirects remove credentials (even for same host).
+                    # Signed storage URLs must never receive API credentials
+                    # or API-specific content negotiation headers.
                     headers.pop('Authorization', None)
                     headers.pop('PRIVATE-TOKEN', None)
+                    headers.pop('X-GitHub-Api-Version', None)
+                    headers['Accept'] = '*/*'
                     continue
                 raise ArtifactError(f'{self.provider} API returned HTTP {exc.code} for {path}') from exc
             except urllib.error.URLError as exc:

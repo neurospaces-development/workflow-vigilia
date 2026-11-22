@@ -44,6 +44,7 @@ class Handler(BaseHTTPRequestHandler):
         private = self.headers.get('PRIVATE-TOKEN')
         if path.startswith('/storage/'):
             state['storage_headers'].append((auth, private))
+            state['storage_accepts'].append(self.headers.get('Accept'))
             if auth or private:
                 return self.send_error(400)
             identity = int(path.rsplit('/', 1)[1])
@@ -75,6 +76,11 @@ class Handler(BaseHTTPRequestHandler):
                      'expired': state['expire_regression']},
                 ]}
             elif '/artifacts/' in path and path.endswith('/zip'):
+                # Match the real GitHub API: incorrect binary Accept values
+                # are rejected before the signed artifact-storage redirect.
+                state['github_zip_accepts'].append(self.headers.get('Accept'))
+                if self.headers.get('Accept') != 'application/vnd.github+json':
+                    return self.send_error(415)
                 identity = int(path.split('/artifacts/')[1].split('/')[0])
                 self.send_response(302)
                 self.send_header('Location', f'/storage/{identity}')
@@ -134,7 +140,8 @@ class ArtifactDownloadTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)
         self.server.state.clear()
-        self.server.state.update(storage_headers=[], bad_sha=False, bad_zip=False,
+        self.server.state.update(storage_headers=[], storage_accepts=[], github_zip_accepts=[],
+                                 bad_sha=False, bad_zip=False,
                                  expire_regression=False, different_revision=False,
                                  missing_job=False, failed_job=False, failed_run=False, no_environment=False)
         port = self.server.server_port
@@ -177,6 +184,9 @@ class ArtifactDownloadTests(unittest.TestCase):
             self.assertEqual(len(z.namelist()), 5)
         self.assertEqual(len(self.server.state['storage_headers']), 4)
         self.assertTrue(all(a is None and b is None for a, b in self.server.state['storage_headers']))
+        self.assertEqual(self.server.state['github_zip_accepts'],
+                         ['application/vnd.github+json', 'application/vnd.github+json'])
+        self.assertEqual(self.server.state['storage_accepts'], ['*/*'] * 4)
 
     def test_early_failure_artifacts_without_environment(self):
         self.server.state['failed_run'] = True
