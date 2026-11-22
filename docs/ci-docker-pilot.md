@@ -54,3 +54,27 @@ References:
 - GitHub hosted runners: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 - GitLab Docker-in-Docker: https://docs.gitlab.com/ci/docker/docker_in_docker/
 - GitLab hosted runner capabilities: https://docs.gitlab.com/ci/runners/hosted_runners/linux/
+
+## Retrieve pilot diagnostics through workflow
+
+With the flexible REST artifact downloader installed, query the latest
+completed runs **including failures** and inspect the Docker jobs:
+
+```sh
+automation-workflow ci artifacts_inventory --provider github --mode latest
+automation-workflow ci artifacts_inventory --provider gitlab --mode latest
+```
+
+Download both Docker pilot artifacts for the latest common revision:
+
+```sh
+automation-workflow ci artifacts_download docker --mode latest
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```
+
+If only one platform completed the pilot, select its provider, pipeline/run
+ID and (if desired) the specific job/artifact ID using `--run-id` and `--id`.
+The downloader produces a combined ZIP bundle containing the original provider
+archives and a manifest with revision and checksum evidence. These commands do
+not require changes to the tests or access to the runner's Docker daemon.

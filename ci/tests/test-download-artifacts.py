@@ -64,7 +64,11 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/gh/'):
             if auth != 'Bearer github-test-token' or private:
                 return self.send_error(401)
-            if path.endswith('/runs'):
+            if path.endswith('/runs/111'):
+                data = {'id': 111, 'head_sha': SHA, 'conclusion': 'failed' if state['failed_run'] else 'success',
+                        'status': 'completed', 'run_attempt': 1, 'created_at': '2026-11-22T10:00:00Z',
+                        'path': '.github/workflows/regression-tests.yml@refs/heads/ci/regression-integration'}
+            elif path.endswith('/runs'):
                 data = {'workflow_runs': [
                     {'id': 111, 'head_sha': SHA, 'conclusion': 'failed' if state['failed_run'] else 'success',
                      'status': 'completed', 'run_attempt': 1, 'created_at': '2026-11-22T10:00:00Z'},
@@ -74,6 +78,7 @@ class Handler(BaseHTTPRequestHandler):
                     {'id': 101, 'name': 'vigilia-results-smoke-111-1', 'expired': False},
                     {'id': 102, 'name': 'vigilia-results-regression-111-1',
                      'expired': state['expire_regression']},
+                    {'id': 103, 'name': 'vigilia-docker-pilot-111-1', 'expired': state['expire_docker']},
                 ]}
             elif '/artifacts/' in path and path.endswith('/zip'):
                 # Match the real GitHub API: incorrect binary Accept values
@@ -91,7 +96,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith('/gl/'):
             if private != 'gitlab-test-token' or auth:
                 return self.send_error(401)
-            if path.endswith('/pipelines'):
+            if path.endswith('/pipelines/222'):
+                data = {'id': 222, 'sha': OLD_SHA if state['different_revision'] else SHA,
+                        'status': 'failed' if state['failed_run'] else 'success',
+                        'created_at': '2026-11-22T10:00:00Z'}
+            elif path.endswith('/pipelines'):
                 data = [{'id': 222, 'sha': OLD_SHA if state['different_revision'] else SHA,
                          'status': 'failed' if state['failed_run'] else 'success',
                          'created_at': '2026-11-22T10:00:00Z'}]
@@ -101,9 +110,12 @@ class Handler(BaseHTTPRequestHandler):
                      'status': 'success', 'artifacts_file': {'size': 300}},
                     {'id': 202, 'name': 'vigilia-regression: [regression]',
                      'status': 'failed' if state['failed_job'] else 'success', 'artifacts_file': {'size': 300}},
+                    {'id': 203, 'name': 'vigilia-docker-pilot',
+                     'status': 'failed' if state['failed_job'] else 'success',
+                     'artifacts_file': {'size': 0 if state['missing_docker_artifact'] else 300}},
                 ]
                 if state['missing_job']:
-                    data.pop()
+                    data = [job for job in data if job['id'] != 202]
             elif path.endswith('/artifacts'):
                 identity = int(path.split('/jobs/')[1].split('/')[0])
                 self.send_response(302)
@@ -142,8 +154,9 @@ class ArtifactDownloadTests(unittest.TestCase):
         self.server.state.clear()
         self.server.state.update(storage_headers=[], storage_accepts=[], github_zip_accepts=[],
                                  bad_sha=False, bad_zip=False,
-                                 expire_regression=False, different_revision=False,
-                                 missing_job=False, failed_job=False, failed_run=False, no_environment=False)
+                                 expire_regression=False, expire_docker=False, different_revision=False,
+                                 missing_job=False, failed_job=False, failed_run=False,
+                                 no_environment=False, missing_docker_artifact=False)
         port = self.server.server_port
         settings = {'ci_artifacts': {
             'branch': 'ci/regression-integration',
@@ -251,6 +264,89 @@ class ArtifactDownloadTests(unittest.TestCase):
         data = (self.output / SHA / 'manifest.json').read_text()
         self.assertNotIn('github-test-token', data)
         self.assertNotIn('gitlab-test-token', data)
+
+
+    def test_inventory_lists_docker_and_ids(self):
+        self.server.state['failed_run'] = True
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.assertEqual(self.invoke('inventory', '--mode', 'latest'), 0)
+        info = json.loads(captured.getvalue())
+        self.assertEqual(info['runs']['github']['id'], 111)
+        self.assertEqual(info['runs']['gitlab']['id'], 222)
+        self.assertIn(('docker', 103), [(a['profile'], a['id']) for a in info['artifacts']['github']])
+        self.assertIn(('docker', 203), [(a['profile'], a['id']) for a in info['artifacts']['gitlab']])
+
+    def test_docker_from_failed_pipelines(self):
+        self.server.state['failed_run'] = True
+        self.server.state['failed_job'] = True
+        self.server.state['no_environment'] = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.invoke('download', '--mode', 'latest', '--profile', 'docker'), 0)
+            self.assertEqual(self.invoke('verify'), 0)
+        pointer = json.loads((self.output / 'latest.json').read_text())
+        manifest = json.loads((self.output / pointer['manifest']).read_text())
+        self.assertEqual({(a['provider'], a['artifact_id']) for a in manifest['artifacts']},
+                         {('github', 103), ('gitlab', 203)})
+        self.assertTrue(all(not a['embedded_revision_verified'] for a in manifest['artifacts']))
+
+    def test_explicit_run_artifact_id_and_gitlab_job_id(self):
+        for provider, run_id, artifact_id in [('github', 111, 103), ('gitlab', 222, 203)]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.invoke('download', '--provider', provider,
+                                             '--run-id', str(run_id), '--id', str(artifact_id)), 0)
+                self.assertEqual(self.invoke('verify'), 0)
+            pointer = json.loads((self.output / 'latest.json').read_text())
+            manifest = json.loads((self.output / pointer['manifest']).read_text())
+            self.assertEqual([e['artifact_id'] for e in manifest['artifacts']], [artifact_id])
+            self.assertEqual(manifest['artifacts'][0]['profile'], 'docker')
+
+    def test_glob_and_all_artifacts(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.invoke('download', '--name', '*docker-pilot*'), 0)
+        pointer = json.loads((self.output / 'latest.json').read_text())
+        manifest = json.loads((self.output / pointer['manifest']).read_text())
+        self.assertEqual(len(manifest['artifacts']), 2)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.invoke('download', '--all'), 0)
+            self.assertEqual(self.invoke('verify'), 0)
+        pointer = json.loads((self.output / 'latest.json').read_text())
+        manifest = json.loads((self.output / pointer['manifest']).read_text())
+        self.assertEqual(len(manifest['artifacts']), 6)
+
+    def test_custom_selection_preserves_previous_bundle(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.invoke('download')
+        legacy = self.output / SHA / 'manifest.json'
+        original = legacy.read_bytes()
+        normal_bundle = self.output / SHA / f'workflow-vigilia-ci-{SHA[:12]}.zip'
+        self.assertTrue(normal_bundle.is_file())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.invoke('download', '--provider', 'github', '--profile', 'docker')
+            self.invoke('verify')
+        pointer = json.loads((self.output / 'latest.json').read_text())
+        self.assertNotEqual(pointer['manifest'], f'{SHA}/manifest.json')
+        self.assertEqual(legacy.read_bytes(), original)
+        self.assertTrue(normal_bundle.is_file())
+        self.assertTrue((self.output / pointer['bundle']).is_file())
+
+    def test_selector_errors(self):
+        with self.assertRaisesRegex(mod.ArtifactError, 'only one'):
+            self.invoke('download', '--all', '--profile', 'docker')
+        with self.assertRaisesRegex(mod.ArtifactError, 'one provider'):
+            self.invoke('download', '--run-id', '111')
+        with self.assertRaisesRegex(mod.ArtifactError, 'requires one provider'):
+            self.invoke('download', '--provider', 'github', '--id', '103')
+        with self.assertRaisesRegex(mod.ArtifactError, 'unavailable'):
+            self.invoke('download', '--provider', 'github', '--run-id', '111', '--id', '999')
+
+    def test_inventory_shows_missing_artifacts(self):
+        self.server.state['missing_docker_artifact'] = True
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.invoke('inventory', '--provider', 'gitlab')
+        jobs = json.loads(captured.getvalue())['artifacts']['gitlab']
+        self.assertFalse(next(j for j in jobs if j['id'] == 203)['available'])
+        with self.assertRaisesRegex(mod.ArtifactError, 'missing or ambiguous'):
+            self.invoke('download', '--provider', 'gitlab', '--profile', 'docker')
 
 
 if __name__ == '__main__':

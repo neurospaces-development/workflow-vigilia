@@ -36,9 +36,30 @@ class WorkflowAdapterTests(unittest.TestCase):
             self.ns['ci_artifacts_download'](['random-selector'])
 
     def test_other_commands(self):
-        for command in ['list', 'verify', 'report']:
+        for command in ['list', 'inventory', 'verify', 'report']:
             self.ns['ci_artifacts_' + command]([])
-        self.assertEqual(len(self.commands), 3)
+        self.assertEqual(len(self.commands), 4)
+
+    def test_download_docker_pilot(self):
+        self.ns['ci_artifacts_download'](['docker', '--provider', 'github',
+                                          '--mode', 'latest'])
+        self.assertIn('download --profile docker --provider github --mode latest',
+                      self.commands[0][0])
+
+    def test_download_explicit_job_id(self):
+        self.ns['ci_artifacts_download'](['--provider', 'gitlab', '--run-id',
+                                          '12345', '--id', '56789'])
+        self.assertIn('download --provider gitlab --run-id 12345 --id 56789',
+                      self.commands[0][0])
+
+    def test_download_all(self):
+        self.ns['ci_artifacts_download'](['all', '--provider', 'gitlab'])
+        self.assertIn('download --all --provider gitlab', self.commands[0][0])
+
+    def test_inventory_path_completion(self):
+        self.ns['_completor_generic_expander'] = lambda obj: obj
+        result = self.ns['ci_artifacts_inventory_completor']('ci artifacts_inventory', [], {})
+        self.assertEqual(result['operation_path'], ['ci', 'artifacts_inventory'])
 
 
 if __name__ == '__main__':

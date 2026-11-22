@@ -13,6 +13,10 @@ def _ci_artifacts_schedule(subcommand, argv):
         selection = arguments.pop(0)
         if selection in ('latest', 'latest-successful'):
             arguments = ['--mode', selection] + arguments
+        elif selection in ('smoke', 'regression', 'docker'):
+            arguments = ['--profile', selection] + arguments
+        elif selection == 'all':
+            arguments = ['--all'] + arguments
         elif len(selection) >= 7 and len(selection) <= 40 and all(c in '0123456789abcdef' for c in selection):
             arguments = ['--mode', 'revision', '--revision', selection] + arguments
         else:
@@ -36,6 +40,10 @@ def ci_artifacts_download(argv):
     _ci_artifacts_schedule('download', argv)
 
 
+def ci_artifacts_inventory(argv):
+    _ci_artifacts_schedule('inventory', argv)
+
+
 def ci_artifacts_verify(argv):
     _ci_artifacts_schedule('verify', argv)
 
@@ -56,7 +64,13 @@ def _ci_artifacts_completor(operation, argv, analysis):
                 '--mode': 'Select the run mode',
                 '--revision': 'Select a specific Git revision',
                 '--provider': 'Select one or more providers',
-                '--profile': 'Select one or more test profiles',
+                '--profile': 'Select smoke, regression or Docker pilot archives',
+                'docker': 'Docker pilot artifact archive',
+                'all': 'All available job artifact archives',
+                '--run-id': 'GitHub run / GitLab pipeline ID',
+                '--id': 'Exact GitHub artifact / GitLab job ID',
+                '--name': 'Glob matching GitHub artifact / GitLab job name',
+                '--all': 'Download every available artifact archive',
             }},
         ],
     })
@@ -68,6 +82,10 @@ def ci_artifacts_list_completor(command, argv, analysis):
 
 def ci_artifacts_download_completor(command, argv, analysis):
     return _ci_artifacts_completor('download', argv, analysis)
+
+
+def ci_artifacts_inventory_completor(command, argv, analysis):
+    return _ci_artifacts_completor('inventory', argv, analysis)
 
 
 def ci_artifacts_verify_completor(command, argv, analysis):
@@ -82,11 +100,20 @@ def ci_artifacts_list_help(command, argv):
     return f'{command}: List recent completed GitHub/GitLab pipeline runs from REST APIs.\n'
 
 
+def ci_artifacts_inventory_help(command, argv):
+    return (f'{command}: Discover available artifact IDs and GitLab job IDs.\n'
+            '  Options: --provider github|gitlab, --mode latest|latest-successful,\n'
+            '  --run-id ID (one provider), --revision SHA. Does not download archives.\n')
+
+
 def ci_artifacts_download_help(command, argv):
-    return (f'{command}: Download both providers and profiles at a common Git revision.\n'
-            '  First argument: latest (including failures), latest-successful, or SHA.\n'
-            '  Additional options: --provider github|gitlab, --profile smoke|regression,\n'
-            '  --revision SHA, --mode latest|latest-successful|revision, --output DIR.\n'
+    return (f'{command}: Download selected GitHub and GitLab job artifacts.\n'
+            '  First argument: latest, latest-successful, Git SHA, smoke, regression, docker, or all.\n'
+            '  Selection: --profile smoke|regression|docker, --name GLOB, --all, or --id ID.\n'
+            '  Targeting: --provider github|gitlab, --run-id ID, --revision SHA,\n'
+            '  --mode latest|latest-successful|revision, --output DIR.\n'
+            '  --id requires exactly one provider and an explicit --run-id.\n'
+            '  Failed Docker pilots: use --mode latest or --run-id; default selects successful runs.\n'
             '  Credentials: GITHUB_TOKEN/GH_TOKEN and GITLAB_TOKEN environment variables.\n')
 
 

@@ -97,3 +97,78 @@ python3 ci/tests/test-workflow-artifacts.py
 
 The shared `ci/test.sh` executes them before the build and the `vigilia`
 regression suite, preserving separate stage logs.
+
+## Flexible job and Docker-pilot selection
+
+The original default is unchanged: `download` retrieves the smoke and
+regression artifacts for the latest revision on which **both** platforms have
+successful completed pipelines. Docker pilot jobs are deliberately excluded
+from that default. Docker job failures may make a complete pipeline fail, so
+use `--mode latest` or an explicit pipeline/run ID when gathering diagnostics.
+
+The new `inventory` operation queries the jobs/artifacts available in a
+specific completed run. Its output contains the provider-specific IDs,
+artifact/job names, status, availability and sizes. It does not download files.
+
+```sh
+# Inspect most recent completed runs, including failed Docker pilots.
+automation-workflow ci artifacts_inventory --provider github --mode latest
+automation-workflow ci artifacts_inventory --provider gitlab --mode latest
+
+# Download both Docker pilot artifacts at the latest common revision,
+# whether the jobs passed or failed.
+automation-workflow ci artifacts_download docker --mode latest
+
+# Select one provider and one profile.
+automation-workflow ci artifacts_download docker --provider github --mode latest
+
+# Select a specific GitHub run and artifact ID (from inventory).
+automation-workflow ci artifacts_inventory --provider github --run-id 123456789
+automation-workflow ci artifacts_download --provider github --run-id 123456789 --id 987654321
+
+# Select a specific GitLab pipeline and job ID (from inventory).
+automation-workflow ci artifacts_inventory --provider gitlab --run-id 123456789
+automation-workflow ci artifacts_download --provider gitlab --run-id 123456789 --id 987654321
+
+# Name patterns are applied to GitHub artifact names / GitLab job names.
+automation-workflow ci artifacts_download --mode latest --name '*docker-pilot*'
+
+# All available ZIP artifacts in the selected completed run(s).
+automation-workflow ci artifacts_download all --mode latest
+
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```
+
+The standalone `python3 ci/download-artifacts.py` supports identical options.
+Use only one of `--profile` (repeatable), `--name` (repeatable), `--id`
+(repeatable), or `--all`. `--id` requires one `--provider` and `--run-id`;
+`--run-id` refers to a **GitHub Actions workflow run** or a **GitLab
+pipeline**, not to a GitLab job. For an individual GitLab job use `--id`.
+A named profile may be `smoke`, `regression` or `docker`. The names for these
+profiles are customizable under `github.artifact_names` and `gitlab.job_names`
+in the YAML configuration. `--all` has a safety limit of 50 archives per run.
+
+Custom selections of the same source revision use separate `manifest-*.json`
+and `workflow-vigilia-ci-*-*.zip` filenames, so retrieving one failed Docker
+job does not overwrite an existing smoke/regression evidence bundle. The
+`latest.json` pointer follows the most recently completed download; `verify`
+and `report` operate on that selection.
+
+When a failed job has no `environment.txt`, the archive can still be retained
+and verified for ZIP integrity and checksum, but its revision is only
+corroborated by the CI provider's authenticated API; the manifest records
+this distinction. `inventory` may report `available: false` for jobs that
+produced no artifacts. In that case inspect the job log in the provider UI.
+
+Find the most recently produced combined archive for sharing:
+
+```sh
+python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path('ci-artifacts')
+pointer = json.loads((root / 'latest.json').read_text())
+print(root / pointer['bundle'])
+PY
+```
