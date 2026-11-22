@@ -55,13 +55,17 @@ run_case() {
         fail "$name: vigilia exited $rc"
     fi
     perl -MYAML::PP -e '
-        my ($filename, $expected_tests, $expected_modules) = @ARGV;
+        my ($filename, $expected_tests, $expected_modules, $case_name) = @ARGV;
         my $g = YAML::PP::LoadFile($filename)->{global};
         die "incomplete report\n" unless $g->{status} eq "Finished";
         die "errors in report\n" if $g->{error_count};
-        die "wrong test count\n" unless $g->{test_counters}->{current}->{command_test} == $expected_tests;
-        die "wrong module count\n" unless $g->{test_counters}->{current}->{module_definition} == $expected_modules;
-    ' "$work/report-$name/report.yml" "$tests" "$modules"
+        my $actual_tests = $g->{test_counters}->{current}->{command_test} // 0;
+        my $actual_modules = $g->{test_counters}->{current}->{module_definition} // 0;
+        die "$case_name: wrong test count: expected $expected_tests, got $actual_tests\n"
+            unless $actual_tests == $expected_tests;
+        die "$case_name: wrong module count: expected $expected_modules, got $actual_modules\n"
+            unless $actual_modules == $expected_modules;
+    ' "$work/report-$name/report.yml" "$tests" "$modules" "$name"
     printf 'PASS %-24s tests=%s modules=%s\n' "$name" "$tests" "$modules"
 }
 
@@ -69,7 +73,8 @@ run_case and 1 1 --tag-query 'tutorial AND ci:regression'
 run_case or 3 3 --tag-query 'tutorial OR manual'
 run_case precedence 2 2 --tag-query 'tutorial OR manual AND ci:regression'
 run_case grouped 1 1 --tag-query '(tutorial OR manual) AND ci:regression'
-run_case not 2 2 --tag-query 'tutorial AND NOT ci:regression'
+# Of the five modules, only tutorial.t has tutorial but not ci:regression.
+run_case not 1 1 --tag-query 'tutorial AND NOT ci:regression'
 run_case pure-not 3 3 --tag-query 'NOT ci:regression'
 run_case quoted 2 2 --tag-query '"ci:regression"'
 run_case repeated 2 2 --tag-query 'tutorial OR tutorial'
