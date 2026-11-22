@@ -2,7 +2,7 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-All five previously configured modules have passed on both GitHub Actions and
+All eight previously configured modules have passed on both GitHub Actions and
 GitLab CI/CD:
 
 - `20_vigilia/30_docker.t` (3 command tests);
@@ -11,23 +11,35 @@ GitLab CI/CD:
   tests; one additional assertion is disabled);
 - `40_workflow-automator/29_config-loader-errors/summary.yml` (2 tests);
 - `40_workflow-automator/31_specific-features-export-variables/summary.yml`
-  (3 tests).
-
-The next three candidates extend Workflow feature coverage using the same
-`Dockerfile.workflow-feature-testing` image:
-
+  (3 tests);
 - `40_workflow-automator/28_command_array_concatenation/summary.yml`
-  (2 enabled command tests; the tmux-concatenation assertion remains disabled):
-  checks per-role command-array scheduling;
+  (2 enabled command tests; one additional assertion is disabled);
 - `40_workflow-automator/36_specific-features-timestamps/summary.yml`
-  (4 tests): checks generated command timestamp files;
+  (4 tests);
 - `40_workflow-automator/37_specific-features-background/summary.yml`
-  (2 tests): checks background-command scheduling and suppressed output.
+  (2 tests).
 
-These eight modules specify **26 enabled command tests** in total: 18 verified
-on both providers, plus 8 awaiting hosted validation. Two assertions are
-explicitly disabled. The existing five modules and their specifications are
-unchanged. All eight modules execute in independent Docker containers.
+The next two modules exercise additional Workflow export features using the
+same `Dockerfile.workflow-feature-testing` image:
+
+- `40_workflow-automator/32_specific-features-export-sh/summary.yml`
+  (15 tests): generated shell scripts, role selection, help, dry-run, and
+  verbose options;
+- `40_workflow-automator/33_specific-features-export-times/summary.yml`
+  (5 tests): generated command timing information and exported timing files.
+
+The timestamp assertions intentionally use a reproducible reference time.
+`Dockerfile.workflow-feature-testing` installs `libfaketime` and sets both
+`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1` and
+`FAKETIME="@2025-10-11 11:38:32"`. The expected October 2025 timestamps in
+`33_specific-features-export-times` are therefore intentional test fixtures,
+not assumptions about the CI runner's current date. This configuration is
+already present in the Docker image used by passing modules.
+
+These ten modules specify **46 enabled command tests** in total: 26 verified
+on both providers, plus 20 awaiting hosted validation. Two additional
+assertions are explicitly disabled. No existing test specifications are
+changed. All ten modules execute separately through the shared suite runner.
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -78,6 +90,10 @@ ci-results/docker-suite/run.XXXXXX/
   07-40_workflow-automator_36_specific-features-timestamps_summary.yml/
     ...
   08-40_workflow-automator_37_specific-features-background_summary.yml/
+    ...
+  09-40_workflow-automator_32_specific-features-export-sh_summary.yml/
+    ...
+  10-40_workflow-automator_33_specific-features-export-times_summary.yml/
     ...
 ```
 
