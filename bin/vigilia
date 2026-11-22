@@ -2090,6 +2090,12 @@ sub harness_command_run_tests
 	$model_library_shas = ModelLibrary::shas($global_config->{external_model_libraries});
     }
 
+    # Boolean queries are evaluated against effective tag sets on complete
+    # module/command/assertion paths. Build a selection index before both
+    # static counter calculations and actual execution/inspection.
+    Heterarch::Test::Element::index_tag_query_selection($module_definitions)
+        if defined $global_tag_query_ast;
+
     # Discover every loaded definition (after the module filename/regex filter).
     # The legacy expected_totals field historically counted these elements,
     # regardless of --tags, disabled flags, or runtime skip conditions.
@@ -2188,6 +2194,8 @@ sub harness_command_run_tests
            regex_selector => $option_regex_selector,
            requested_tags => [ @$option_tags ],
            tag_query => $option_tag_query,
+           tag_query_semantics => (defined $option_tag_query
+               ? 'effective-tags-v1' : undef),
           };
 
     # set status
@@ -5547,11 +5555,16 @@ package Heterarch::Test::Element;
 
 our $selected_output_levels;
 
+# Cached selection decisions are keyed by Perl reference identity; the cache
+# is built once after loading modules and before traversal or output generation.
+my $tag_query_selection = {};
+
+
 
 # Tags are content metadata, shared by execution, inspection and documentation.
 # A module needs an explicit matching tag when a filter is active. Untagged
 # descendants inherit selection; an explicitly tagged descendant narrows it.
-# --tags uses OR semantics. --tag-query supports Boolean expressions.
+# --tags uses OR/narrowing semantics. --tag-query uses effective tags.
 # The only supported specification key is "tags", whose value is a YAML array.
 
 sub _tag_values
@@ -5695,6 +5708,67 @@ sub evaluate_tag_query
 }
 
 
+# Effective tags: ordinary labels accumulate down the hierarchy; a child
+# providing namespaced tags replaces inherited tags with the same namespace.
+# For example ci:regression overrides inherited ci:smoke, but preserves a
+# parent's tutorial tag. These semantics apply only to --tag-query. The old
+# --tags option retains its established local OR/narrowing semantics.
+sub effective_tag_values
+{
+    my ($element, $parent) = @_;
+    my $own = _tag_values($element);
+    my %effective = %{ $parent // {} };
+    my %overridden;
+    for my $tag (@$own)
+    {
+        $overridden{$1} = 1 if $tag =~ /\A([^:]+):/;
+    }
+    for my $tag (keys %effective)
+    {
+        delete $effective{$tag}
+            if $tag =~ /\A([^:]+):/ && $overridden{$1};
+    }
+    $effective{$_} = 1 for @$own;
+    return \%effective;
+}
+
+
+# Select a parent if any enabled descendant assertion matches. This permits a
+# specific assertion to carry documentation tags even when its module has no
+# corresponding tag. A command with no eligible assertion is never started
+# simply because its ancestors carry matching metadata.
+sub index_tag_query_selection
+{
+    my $modules = shift;
+    my %selected;
+    use Scalar::Util 'refaddr';
+    for my $module (@$modules)
+    {
+        my $module_tags = effective_tag_values($module, {});
+        my $module_selected = 0;
+        for my $command (@{$module->{command_definitions} // []})
+        {
+            my $command_tags = effective_tag_values($command, $module_tags);
+            my $command_selected = 0;
+            for my $test (@{$command->{command_tests} // []})
+            {
+                my $effective = effective_tag_values($test, $command_tags);
+                my $matches = !$module->{disabled} && !$module->{error}
+                    && !$command->{disabled} && !$command->{error}
+                    && !$test->{disabled} && !$test->{error}
+                    && evaluate_tag_query($global_tag_query_ast, $effective);
+                $selected{refaddr($test)} = $matches ? 1 : 0;
+                $command_selected ||= $matches;
+            }
+            $selected{refaddr($command)} = $command_selected ? 1 : 0;
+            $module_selected ||= $command_selected;
+        }
+        $selected{refaddr($module)} = $module_selected ? 1 : 0;
+    }
+    $tag_query_selection = \%selected;
+}
+
+
 sub matches_tags
 {
     my $element = shift;
@@ -5707,11 +5781,9 @@ sub matches_tags
 
     if (defined $global_tag_query_ast)
     {
-        # Patch 0022 evaluates explicit tags at each hierarchy level.
-        # Patch 0023 will evaluate inherited effective tags at test leaves.
-        return evaluate_tag_query($global_tag_query_ast,
-                                  { map { $_ => 1 } @$tags })
-            ? 'matched query' : ($parent_selected && !@$tags ? 'inherited' : undef);
+        use Scalar::Util 'refaddr';
+        my $key = refaddr($element);
+        return $tag_query_selection->{$key} ? 'matched query' : undef;
     }
 
     return ':all' unless scalar @$option_tags;

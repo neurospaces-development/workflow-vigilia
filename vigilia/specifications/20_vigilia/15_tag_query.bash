@@ -5,6 +5,7 @@ vigilia=$(realpath "${1:-bin/vigilia}")
 work=$(mktemp -d "${TMPDIR:-/tmp}/vigilia-tag-query.XXXXXX")
 trap 'rc=$?; if (( rc == 0 )); then rm -rf -- "$work"; else echo "Tag-query evidence: $work" >&2; fi' EXIT
 export VIGILIA_TAG_QUERY_ROOT="$work" NEUROSPACES_HARNESS_OPTION_EMAIL=0
+export VIGILIA_TAG_QUERY_MARKER="$work/executed"
 mkdir "$work/specifications"
 cat > "$work/vigilia.config" <<'CONFIG'
 return {
@@ -45,6 +46,7 @@ run_case() {
     local name=$1 tests=$2 modules=$3
     shift 3
     local rc=0
+    rm -f -- "$VIGILIA_TAG_QUERY_MARKER"
     "$vigilia" --config-filename "$work/vigilia.config" \
         --console-type linear --reporting-directory "$work/report-$name" \
         "$@" > "$work/$name.log" 2>&1 || rc=$?
@@ -89,4 +91,117 @@ rc=0
 (( rc != 0 )) || fail '--tags mixed with --tag-query accepted'
 grep -q -- '--tag-query cannot be combined with --tags' "$work/mixed.log" ||
     fail 'missing mixed-filter diagnostic'
-printf '%s\n' 'Vigilia Boolean tag query parser regression tests passed.'
+# Nested knowledge-base selection: namespaced child tags override the same
+# parent namespace, but bare documentation labels accumulate on descendants.
+cat > "$work/specifications/effective.t" <<'YAML'
+---
+name: effective.t
+description: Combined documentation and CI metadata
+tags: [tutorial, ci:smoke, ci:regression]
+command_definitions:
+  - description: Inherit every module tag
+    command: /bin/sh
+    arguments: [-c, 'printf "base\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Inherited test
+        exit_code: 0
+  - description: Child overrides CI classification for regression
+    tags: [ci:regression]
+    command: /bin/sh
+    arguments: [-c, 'printf "regression-command\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Regression-only command
+        exit_code: 0
+  - description: Test overrides the inherited CI namespace
+    command: /bin/sh
+    arguments: [-c, 'printf "regression-test\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Regression-only assertion
+        tags: [ci:regression]
+        exit_code: 0
+  - description: Child overrides CI classification for smoke
+    tags: [ci:smoke]
+    command: /bin/sh
+    arguments: [-c, 'printf "smoke-command\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Smoke-only command
+        exit_code: 0
+  - description: A manual label supplements inherited tutorial and CI tags
+    tags: [manual]
+    command: /bin/sh
+    arguments: [-c, 'printf "manual-command\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Manual and tutorial with inherited CI tags
+        exit_code: 0
+YAML
+
+cat > "$work/specifications/descendant.t" <<'YAML'
+---
+name: descendant.t
+description: A module lacking the requested tutorial and CI tags
+tags: [manual]
+command_definitions:
+  - description: Child defines a more specific category
+    tags: [tutorial, ci:regression]
+    command: /bin/sh
+    arguments: [-c, 'printf "descendant\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Reach through a nonmatching parent
+        exit_code: 0
+YAML
+
+cat > "$work/specifications/assertion.t" <<'YAML'
+---
+name: assertion.t
+description: Never start a command with no matching assertion
+tags: [tutorial, ci:smoke, ci:regression]
+command_definitions:
+  - description: Parent looks eligible for smoke but assertion is regression-only
+    command: /bin/sh
+    arguments: [-c, 'printf "UNEXPECTED\n" >> "$VIGILIA_TAG_QUERY_MARKER"']
+    command_tests:
+      - description: Explicitly regression-only assertion
+        tags: [ci:regression]
+        exit_code: 0
+YAML
+
+run_case effective-smoke 3 1 --regex-selector 'effective\.t$' \
+    --tag-query 'tutorial AND ci:smoke'
+printf '%s\n' base manual-command smoke-command | sort > "$work/expected-smoke"
+sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-smoke"
+cmp -s "$work/actual-smoke" "$work/expected-smoke" || fail 'Smoke query crossed CI override'
+
+run_case effective-regression 4 1 --regex-selector 'effective\.t$' \
+    --tag-query 'tutorial AND ci:regression'
+printf '%s\n' base manual-command regression-command regression-test | sort > "$work/expected-regression"
+sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-regression"
+cmp -s "$work/actual-regression" "$work/expected-regression" || fail 'Regression query did not respect hierarchy'
+
+run_case effective-manual 1 1 --regex-selector 'effective\.t$' \
+    --tag-query 'manual AND ci:regression'
+[[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == manual-command ]] || fail 'Bare tag accumulation failed'
+
+run_case descendant 1 1 --regex-selector 'descendant\.t$' \
+    --tag-query 'tutorial AND ci:regression'
+[[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == descendant ]] || fail 'Descendant did not activate module'
+
+run_case assertion-excluded 0 0 --regex-selector 'assertion\.t$' \
+    --tag-query 'ci:smoke'
+[[ ! -e $VIGILIA_TAG_QUERY_MARKER ]] || fail 'Excluded assertion started command'
+
+run_case assertion-selected 1 1 --regex-selector 'assertion\.t$' \
+    --tag-query 'ci:regression'
+[[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == UNEXPECTED ]] || fail 'Selected assertion did not run'
+
+run_case inspection-hierarchy 4 1 --regex-selector 'effective\.t$' \
+    --tag-query 'tutorial AND ci:regression' --show-command-tests
+[[ ! -e $VIGILIA_TAG_QUERY_MARKER ]] || fail 'Documentation inspection executed commands'
+
+# The existing --tags semantics still narrow on each explicitly tagged child
+# rather than applying the additive effective-tag expression semantics.
+run_case legacy-hierarchy 2 1 --regex-selector 'effective\.t$' --tags ci:smoke
+printf '%s\n' base smoke-command | sort > "$work/expected-legacy"
+sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-legacy"
+cmp -s "$work/actual-legacy" "$work/expected-legacy" || fail 'Legacy --tags selection changed'
+
+printf '%s\n' 'Vigilia Boolean tag query and hierarchical selection tests passed.'
