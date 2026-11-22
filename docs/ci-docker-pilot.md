@@ -2,10 +2,15 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The default list begins with the cross-platform verified
-`20_vigilia/30_docker.t` and adds
-`20_vigilia/12_error_checking/summary.yml` as the first expansion candidate.
-The second module has not yet been validated on hosted runners.
+The initial two modules, `20_vigilia/30_docker.t` and
+`20_vigilia/12_error_checking/summary.yml`, have passed on both GitHub Actions
+and GitLab CI/CD. The third module,
+`40_workflow-automator/15_error-pages/summary.yml`, extends the suite to the
+`workflow` command-line error messages. It defines five enabled command tests
+and one explicitly disabled test (which requires a separate installation of
+`feature-testing-workflow`). The third module **has not yet been validated on
+hosted runners**; its Docker image build and exact error-message assertions
+may expose further issues.
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -44,6 +49,8 @@ ci-results/docker-suite/run.XXXXXX/
     run.XXXXXX/make-check.log
     ...
   02-20_vigilia_12_error_checking_summary.yml/
+    ...
+  03-40_workflow-automator_15_error-pages_summary.yml/
     ...
 ```
 
