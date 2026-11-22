@@ -1,0 +1,21 @@
+---
+ci_artifacts:
+  branch: ci/regression-integration
+  providers:
+    - github
+    - gitlab
+  profiles:
+    - smoke
+    - regression
+  github:
+    repository: neurospaces-development/workflow-vigilia
+    workflow: regression-tests.yml
+    api_base: https://api.github.com
+  gitlab:
+    project: neurospaces-development/workflow-vigilia
+    job_prefix: vigilia-regression
+    api_base: https://gitlab.com/api/v4
+  selection:
+    mode: latest-successful
+  download:
+    directory: ci-artifacts

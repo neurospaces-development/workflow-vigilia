@@ -2,6 +2,8 @@
 targets:
   all:
     description: used for processing of target files that are produced by other targets
+  ci:
+    description: Discover and retrieve GitHub/GitLab verification artifacts
   docker:
     description: interaction with the docker build container
   documentation:

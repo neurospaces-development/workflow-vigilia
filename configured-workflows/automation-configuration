@@ -8,6 +8,8 @@ require YAML;
 
 my $build_servers = YAML::LoadFile('automation-configuration-data/build_servers.yml');
 
+my $ci_artifacts = YAML::LoadFile('automation-configuration-data/ci_artifacts.yml');
+
 my $workflow_filenames = YAML::LoadFile('automation-configuration-data/workflow_filenames.yml');
 
 my $node_configuration = YAML::LoadFile('automation-configuration-data/node_configuration.yml');
@@ -18,6 +20,7 @@ my $targets = YAML::LoadFile('automation-configuration-data/targets.yml');
 
 my $configuration = {
 		      %$build_servers,
+		      %$ci_artifacts,
 		      %$workflow_filenames,
 		      %$node_configuration,
 		      %$target_servers,

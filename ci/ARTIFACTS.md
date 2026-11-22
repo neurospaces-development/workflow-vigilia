@@ -63,3 +63,22 @@ artifacts; investigate the relevant CI run instead.
 The output directory is ignored by Git and Docker. Do not treat artifacts from
 untrusted builds as executable programs. `report` lists manifest metadata;
 `verify` checks archived files and checksums, not software correctness.
+
+## `workflow` integration
+
+The target is defined under `configured-workflows`. The following are the
+intended operations (use the invocation prefix of your installed automation
+workflow command):
+
+```sh
+automation-workflow ci artifacts_list
+automation-workflow ci artifacts_download latest-successful
+automation-workflow ci artifacts_download a12a68e57552
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```
+
+The wrapper schedules the standalone Python command using
+`execute_command_array`. It does not issue HTTP requests during configuration
+loading, and retains dry-run semantics. The current working directory must
+be inside the source checkout for `git rev-parse --show-toplevel` to resolve.
