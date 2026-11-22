@@ -1,39 +1,109 @@
-# Common CI entry point
+# Shared CI entry point and reusable test tags
 
-## First profile
+## Execution profiles
 
-The initial profile selects `20_vigilia/13_inspection_exit_code\.t$`.
-It runs the real `vigilia` CLI via Automake and does not need Docker.
-The selector is mandatory; there is no implicit full-suite run.
+`vigilia` tags are **generic selection metadata**, not an exclusive CI feature.
+The `ci:` namespace identifies runner suitability; existing `manual` tags
+remain valid, and `tutorial` (or other topical tags) may later select source
+material for documentation conversion.
 
-From a configured source checkout with the existing dependencies installed:
+| Profile | Tag filter | Environment |
+| --- | --- | --- |
+| `smoke` | `ci:smoke` | No Docker; fast hosted jobs |
+| `regression` | `ci:regression` | No Docker; includes smoke plus broader checks |
+| `full` | No tag filter | Dedicated disposable runner and Docker daemon |
+
+The full profile is never enabled implicitly. It requires
+`VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1` and a genuinely isolated
+execution environment. **Do not enable it on shared workstations or ordinary
+hosted jobs.** The current suite contains fixed container names and Docker
+cleanup operations.
+
+After configuring and installing dependencies, run:
 
 ```sh
-VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\.t$' \
-    ci/test.sh --test-only
+VIGILIA_TEST_PROFILE=smoke ci/test.sh --test-only
+VIGILIA_TEST_PROFILE=regression ci/test.sh --test-only
 ```
 
-`--test-only` skips bootstrap, configure, build and system installation.
-The caller must ensure that any installed binaries needed by selected tests
-match the checkout. This is intended for local validation of the CI interface,
-not a substitute for a clean-runner build.
-
-On a fresh, disposable Ubuntu runner, as a non-root user with noninteractive sudo:
+For a fresh disposable CI runner, omit `--test-only`:
 
 ```sh
 ci/install-dependencies.sh
-VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\.t$' ci/test.sh
+VIGILIA_TEST_PROFILE=smoke ci/test.sh
 ```
 
-The provisioning list is a candidate until tested on a clean Ubuntu 24.04 runner.
-The full entry point runs autogen, configure, make, sudo make install and make
-check. The full installation explicitly sets `CPAN_INSTALL_STRICT_TESTS=1`
-**inside** the elevated environment, so bundled CPAN `make test` failures stop
-installation instead of being logged as warnings. The opt-in setting does not
-change ordinary `make install` behaviour outside CI. Modules already installed
-at the required version are skipped and are not retested. Never run untrusted
-project code with elevated access on a shared host.
-Run one job at a time per checkout and per system installation.
+`--test-only` skips Autotools generation, configure, build and installation.
+Its correctness depends on using installed software that corresponds to the
+checked-out revision.
+
+The old explicit-regex interface remains supported for targeted reruns:
+
+```sh
+VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\\.t$' \
+    ci/test.sh --test-only
+```
+
+When a profile is selected, `VIGILIA_REGEX_SELECTOR` is optional and defaults
+to `.*`. If explicitly provided, the regex and the profile tag are combined
+using logical AND; this is useful for narrowing a failing profile run.
+
+The profile names are mappings maintained by `run_harness.sh`, not built-in
+constraints on the specification format. `--tags` can also be used for
+`manual`, `tutorial`, `security`, subsystem names, or other classifications.
+
+## Tag hierarchy and documentation
+
+Use the YAML array spelling `tags`, including for individual command tests:
+
+```yaml
+name: example.t
+tags: [ci:smoke, ci:regression, manual]
+command_definitions:
+  - description: Fast example included in the manual
+    command: /bin/true
+    command_tests:
+      - description: Exit successfully
+        exit_code: 0
+  - description: Extra regression command
+    tags: [ci:regression]
+    command: /bin/true
+    command_tests:
+      - description: Regression-only assertion
+        exit_code: 0
+```
+
+The module must explicitly match a requested tag. Untagged children inherit
+their selected parent's tags. Explicit child tags restrict selection at that
+level; they do **not** automatically union with parent tags. Multiple `--tags`
+options are alternatives (OR). Duplicate requested tags are harmless. The
+older singular `tag` is accepted as an alias, but should not be used for new
+specifications.
+
+Inspection and documentation output also honor these tags; for example:
+
+```sh
+bin/vigilia --tags manual --show-command-tests
+bin/vigilia --tags tutorial --show-modules
+```
+
+These commands perform selection without executing tested commands. Tags
+select the source material; conversion into a complete manual or tutorial
+with ordering, narrative and cross-references is a separate concern.
+Selecting a tag does not itself guarantee that its module contains
+publication-ready content.
+
+## Build and installation
+
+The full CI entry point runs autogen, configure, make, `sudo make install`,
+and make check. It explicitly sets `CPAN_INSTALL_STRICT_TESTS=1` **inside**
+the elevated installation environment. Bundled CPAN `make test` failures
+therefore stop installation rather than being logged as warnings. Outside
+CI, ordinary installations retain their permissive behaviour. Modules
+already installed at the required version are skipped and not retested.
+
+Never run untrusted project code with elevated access on a shared host.
+Run only one job at a time per checkout and system installation.
 
 ## Strict CPAN test regression
 

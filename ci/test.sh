@@ -3,7 +3,8 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: VIGILIA_REGEX_SELECTOR=REGEX %s [--test-only]\n' "$0" >&2
+    printf 'Usage: VIGILIA_TEST_PROFILE=smoke|regression|full %s [--test-only]\n' "$0" >&2
+    printf '   or: VIGILIA_REGEX_SELECTOR=REGEX %s [--test-only]\n' "$0" >&2
 }
 
 build=1
@@ -13,7 +14,27 @@ case ${1:-} in
     *) usage; exit 2 ;;
 esac
 (( $# == 0 )) || { usage; exit 2; }
-: "${VIGILIA_REGEX_SELECTOR:?Select a nonempty regex explicitly}"
+# Profile selection is opt-in for the shared CI interface. The previous
+# explicit-regex invocation remains supported for focused reruns and probes.
+case "${VIGILIA_TEST_PROFILE:-}" in
+    smoke|regression)
+        VIGILIA_REGEX_SELECTOR=${VIGILIA_REGEX_SELECTOR:-'.*'}
+        ;;
+    full)
+        if [[ "${VIGILIA_ALLOW_FULL:-0}" != 1 ]]; then
+            echo 'Full suite requires VIGILIA_ALLOW_FULL=1 on an isolated Docker runner' >&2
+            exit 2
+        fi
+        VIGILIA_REGEX_SELECTOR=${VIGILIA_REGEX_SELECTOR:-'.*'}
+        ;;
+    '')
+        : "${VIGILIA_REGEX_SELECTOR:?Set VIGILIA_TEST_PROFILE or an explicit regex selector}"
+        ;;
+    *)
+        echo "Unsupported VIGILIA_TEST_PROFILE: $VIGILIA_TEST_PROFILE" >&2
+        exit 2
+        ;;
+esac
 if (( EUID == 0 )); then
     echo 'Run the test harness as a non-root user.' >&2
     exit 2
@@ -21,6 +42,7 @@ fi
 
 cd -- "$(dirname -- "$0")/.."
 export LC_ALL=C.UTF-8 TERM=dumb VIGILIA_CI=1 VIGILIA_REGEX_SELECTOR
+export VIGILIA_TEST_PROFILE="${VIGILIA_TEST_PROFILE:-}"
 export NEUROSPACES_HARNESS_OPTION_EMAIL=0
 
 # Separate evidence from every invocation; never reuse an older report.
@@ -57,7 +79,8 @@ printf 'CI evidence: %s\n' "$run_dir"
     git rev-parse HEAD
     uname -a
     cat /etc/os-release
-    printf 'Selector: %s\nBuild and install: %s\n' "$VIGILIA_REGEX_SELECTOR" "$build"
+    printf 'Profile: %s\nSelector: %s\nBuild and install: %s\n' \
+        "${VIGILIA_TEST_PROFILE:-<explicit regex>}" "$VIGILIA_REGEX_SELECTOR" "$build"
 } > "$run_dir/environment.txt"
 
 run_step() {
