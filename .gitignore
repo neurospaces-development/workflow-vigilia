@@ -134,3 +134,6 @@ m4/lt~obsolete.m4
 
 .deps
 
+
+# Downloaded CI verification evidence
+/ci-artifacts/
