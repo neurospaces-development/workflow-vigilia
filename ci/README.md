@@ -35,6 +35,16 @@ at the required version are skipped and are not retested. Never run untrusted
 project code with elevated access on a shared host.
 Run one job at a time per checkout and per system installation.
 
+## Strict CPAN test regression
+
+`ci/test.sh` always runs `ci/tests/test-cpan-install-strict.sh` before build
+or installation. It uses a temporary fixture tarball and mocked `make` and
+`sudo` commands; it does not install packages, access the network, or modify
+the host. It covers default warning behavior, explicit strict/permissive
+settings, a successful test run, and failing build, test, and install steps.
+The `cpan-regression.log` and `.exit-code.txt` files are retained in the
+run evidence. This smoke test also runs with `--test-only`.
+
 ## Evidence and exit status
 
 Each invocation creates a fresh `ci-results/run.XXXXXX/` directory, or one

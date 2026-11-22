@@ -76,6 +76,9 @@ run_step() {
     return "$rc"
 }
 
+# Unit-test the strict CPAN installer without installing any modules.
+run_step cpan-regression bash ci/tests/test-cpan-install-strict.sh
+
 if (( build )); then
     run_step sudo-check sudo -n true
     run_step autogen ./autogen.sh
