@@ -1,7 +1,7 @@
 ---
 tags:
   - ci:regression
-name: 20_vigilia/14_tag_selection.t
+name: 20_vigilia/14_tag_selection.module.yml
 description: Hierarchical tag selection for execution, inspection, manuals and tutorials
 documentation:
   purpose: Verify generic tags across test execution and documentation inspection.

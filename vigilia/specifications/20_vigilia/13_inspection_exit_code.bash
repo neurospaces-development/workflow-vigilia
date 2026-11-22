@@ -21,11 +21,11 @@ return {
 };
 CONFIG
 
-# A .t file beginning with --- is a YAML module in vigilia.
+# A .module.yml file beginning with --- is a YAML module in vigilia.
 # Each fixture is separate so runtime results can be checked independently.
-cat > "$work/specifications/pass-zero.t" <<'YAML'
+cat > "$work/specifications/pass-zero.module.yml" <<'YAML'
 ---
-name: pass-zero.t
+name: pass-zero.module.yml
 description: Matching zero exit code
 command_definitions:
   - description: Run a successful command
@@ -39,9 +39,9 @@ command_definitions:
         timeout: 5
 YAML
 
-cat > "$work/specifications/pass-nonzero.t" <<'YAML'
+cat > "$work/specifications/pass-nonzero.module.yml" <<'YAML'
 ---
-name: pass-nonzero.t
+name: pass-nonzero.module.yml
 description: Matching nonzero exit code with exact output
 command_definitions:
   - description: Run a command that returns seven
@@ -57,9 +57,9 @@ command_definitions:
         timeout: 5
 YAML
 
-cat > "$work/specifications/fail-mismatch.t" <<'YAML'
+cat > "$work/specifications/fail-mismatch.module.yml" <<'YAML'
 ---
-name: fail-mismatch.t
+name: fail-mismatch.module.yml
 description: Deliberate exit code mismatch
 command_definitions:
   - description: Run a command that returns seven instead of zero
@@ -73,9 +73,9 @@ command_definitions:
         timeout: 5
 YAML
 
-cat > "$work/specifications/fail-unavailable.t" <<'YAML'
+cat > "$work/specifications/fail-unavailable.module.yml" <<'YAML'
 ---
-name: fail-unavailable.t
+name: fail-unavailable.module.yml
 description: Deliberate assertion after the command has been reaped
 command_definitions:
   - description: Run a command and consume its exit status
@@ -155,15 +155,52 @@ else
     printf 'Skipping LaTeX generation: source logo not available\n'
 fi
 
-run_case pass-zero 0 1 0 '' --regex-selector '/pass-zero\.t$'
+run_case pass-zero 0 1 0 '' --regex-selector '/pass-zero\.module\.yml$'
 [[ -e "$VIGILIA_INSPECTION_TEST_MARKER" ]] || fail 'pass-zero did not execute'
-run_case pass-nonzero 0 1 0 '' --regex-selector '/pass-nonzero\.t$'
+run_case pass-nonzero 0 1 0 '' --regex-selector '/pass-nonzero\.module\.yml$'
 [[ -e "$VIGILIA_INSPECTION_TEST_MARKER" ]] || fail 'pass-nonzero did not execute'
 run_case fail-mismatch 1 1 1 'tested command exited with code 7; expected exit code 0' \
-    --regex-selector '/fail-mismatch\.t$'
+    --regex-selector '/fail-mismatch\.module\.yml$'
 [[ -e "$VIGILIA_INSPECTION_TEST_MARKER" ]] || fail 'fail-mismatch did not execute'
 run_case fail-unavailable 1 2 1 'no tested command is currently running' \
-    --regex-selector '/fail-unavailable\.t$'
+    --regex-selector '/fail-unavailable\.module\.yml$'
 [[ -e "$VIGILIA_INSPECTION_TEST_MARKER" ]] || fail 'fail-unavailable did not execute'
+
+# A misnamed YAML module is a specification error, even when the selected
+# profile excludes it. Its discovery must increase the native error count.
+cat > "$work/specifications/wrong-format.t" <<'YAML'
+---
+name: wrong-format.t
+description: Deliberately misnamed YAML module
+command_definitions:
+  - command: /bin/true
+    command_tests:
+      - description: This command must never run
+        exit_code: 0
+YAML
+
+rc=0
+"$vigilia" --config-filename "$work/vigilia.config" \
+    --console-type linear --reporting-directory "$work/report-wrong-format" \
+    --regex-selector '/pass-zero\.module\.yml$' \
+    > "$work/wrong-format.log" 2>&1 || rc=$?
+(( rc != 0 )) || fail 'Misnamed YAML module did not fail the vigilia run'
+grep -Fq 'YAML module has a .t filename' "$work/wrong-format.log" ||
+    fail 'Misnamed YAML module was not reported'
+
+# The optional YAML document marker is not required for the format check.
+cat > "$work/specifications/wrong-format-no-marker.t" <<'YAML'
+name: wrong-format-no-marker.t
+description: YAML mapping without an explicit document marker
+command_definitions: []
+YAML
+rc=0
+"$vigilia" --config-filename "$work/vigilia.config" \
+    --console-type linear --reporting-directory "$work/report-wrong-format-no-marker" \
+    --regex-selector '/pass-zero\.module\.yml$' \
+    > "$work/wrong-format-no-marker.log" 2>&1 || rc=$?
+(( rc != 0 )) || fail 'Misnamed YAML module without document marker passed'
+grep -Fq 'YAML module has a .t filename' "$work/wrong-format-no-marker.log" ||
+    fail 'Misnamed YAML without document marker was not reported'
 
 printf 'Inspection exit code regression tests passed.\n'

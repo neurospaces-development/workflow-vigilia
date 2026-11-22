@@ -7,7 +7,7 @@ trap 'rm -rf -- "$root"' EXIT
 export NEUROSPACES_HARNESS_OPTION_EMAIL=0
 
 bin/vigilia --console-type linear --tags ci:smoke \
-  --regex-selector '20_vigilia/13_inspection_exit_code\.t$' \
+  --regex-selector '20_vigilia/13_inspection_exit_code\.module\.yml$' \
   --reporting-directory "$root/execution" > "$root/execution.log" 2>&1
 
 bin/vigilia --console-type linear --tags ci:regression \

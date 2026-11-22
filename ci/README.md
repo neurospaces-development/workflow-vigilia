@@ -40,7 +40,7 @@ checked-out revision.
 The old explicit-regex interface remains supported for targeted reruns:
 
 ```sh
-VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\\.t$' \
+VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\.module\.yml$' \
     ci/test.sh --test-only
 ```
 

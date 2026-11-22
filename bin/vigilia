@@ -8849,9 +8849,32 @@ sub tl_construct
 	   }
 	   sort
 	   `find $tests_directory 2>/dev/null -name "*.t"`,
+	   `find $tests_directory 2>/dev/null -name "*.module.yml"`,
 	   `find $tests_directory 2>/dev/null -name "summary.yml"`,
 	  ];
 
+    # Validate file-format contracts before applying the runtime --regex-selector
+    # and --tags filters. A misnamed module must never escape CI because it
+    # happens not to belong to the currently selected test profile.
+    my %invalid_module_filenames;
+    foreach my $filename (@$module_definitions)
+    {
+	next unless $filename =~ /\.t$/;
+	next unless is_yaml($filename);
+
+	$invalid_module_filenames{$filename} = 1;
+	my $error = "YAML module has a .t filename: use .module.yml or a directory with summary.yml";
+	$self->{reporter}->report_error_add
+	    (
+	     {
+	      context_path => 'tl_construct',
+	      description => $error,
+	      error => $error,
+	      module_name => $filename,
+	     },
+	    );
+    }
+    $self->{invalid_module_filenames} = \%invalid_module_filenames;
     $self->{module_definition_filenames} = $module_definitions;
 
     return $module_definitions;
@@ -8879,6 +8902,9 @@ sub tl_expand
 
     foreach my $module_definition_filename (@$module_definition_filenames)
     {
+	# The format error was already reported during library discovery.
+	next if $self->{invalid_module_filenames}->{$module_definition_filename};
+
 	#! note that this matches against against the full pathname.
 	#! as a consequence 'specific' matches all the test specifications in the specifications/ directory.
 
@@ -8941,15 +8967,19 @@ sub is_yaml
 
     if ($fh->open("< $filename"))
     {
-	my $first_line = <$fh>;
-
-	$first_line =~ s/(\s)*//g;
-
-	if ($first_line eq '---')
+	# YAML need not start with the optional document marker. Recognize
+	# common top-level mapping keys after leading blank/comment lines as
+	# well, without mistaking a Perl shebang or 'use' statement for YAML.
+	while (my $first_line = <$fh>)
 	{
-	    $result = 'is_yaml';
+	    next if $first_line =~ /^\s*(?:#.*)?$/;
+	    if ($first_line =~ /^\s*---(?:\s|$)/
+		|| $first_line =~ /^\s*(?:name|description|tags|tag|command_definitions|documentation|harnessing)\s*:/)
+	    {
+		$result = 'is_yaml';
+	    }
+	    last;
 	}
-
 	$fh->close;
     }
 
@@ -9161,6 +9191,39 @@ sub tl_module_read
 		);
 	}
     }
+    elsif ($pathname =~ /\.module\.yml$/)
+    {
+	if ($allow_yml_format)
+	{
+	    $module_definition = eval { YAML::PP::LoadFile($pathname) };
+	    if ($@ || ref $module_definition ne 'HASH')
+	    {
+		my $error = $@ || "Standalone YAML module must be a mapping";
+		$reporter->report_error_add
+		    (
+		     {
+		      context_path => 'tl_module_read',
+		      description => $error,
+		      error => $error,
+		      module_name => $pathname,
+		     },
+		    );
+		$module_definition = undef;
+	    }
+	}
+	else
+	{
+	    $reporter->report_error_add
+		(
+		 {
+		  context_path => 'tl_module_read',
+		  description => 'module definition is in YAML format but this is not allowed here',
+		  error => 'module definition is in YAML format but this is not allowed here',
+		  module_name => $pathname,
+		 },
+		);
+	}
+    }
     elsif ($pathname =~ /summary\.yml$/)
     {
 	if ($allow_yml_format)
@@ -9207,23 +9270,17 @@ sub _module_read_perl
 
     if (is_yaml($pathname))
     {
-	$result = eval
-	{
-	    YAML::PP::LoadFile($pathname);
-	};
-
-	if ($@)
-	{
-	    $reporter->report_error_add
-		(
-		 {
-		  context_path => '_module_read_perl',
-		  description => $@,
-		  error => $@,
-		  module_name => $pathname,
-		 },
-		);
-	}
+	my $error = "YAML module has a .t filename: use .module.yml or a directory with summary.yml";
+	$reporter->report_error_add
+	    (
+	     {
+	      context_path => '_module_read_perl',
+	      description => $error,
+	      error => $error,
+	      module_name => $pathname,
+	     },
+	    );
+	return undef;
     }
     elsif (is_json($pathname))
     {

@@ -9,8 +9,8 @@ these profiles before treating them as required merge checks.
 
 | Specification | Tags | Evidence and rationale |
 | --- | --- | --- |
-| `20_vigilia/13_inspection_exit_code.t` | `ci:smoke`, `ci:regression` | Runs a disposable local fixture without Docker; previously validated in both hosted CI pilots. |
-| `20_vigilia/14_tag_selection.t` | `ci:regression` | Runs a temporary local fixture; performs CLI selection, no Docker or installation. Introduced by patch 0012; hosted validation pending. |
+| `20_vigilia/13_inspection_exit_code.module.yml` | `ci:smoke`, `ci:regression` | Runs a disposable local fixture without Docker; previously validated in both hosted CI pilots. |
+| `20_vigilia/14_tag_selection.module.yml` | `ci:regression` | Runs a temporary local fixture; performs CLI selection, no Docker or installation. Introduced by patch 0012; hosted validation pending. |
 | `20_vigilia/10_help/summary.yml` | `ci:regression`, `manual` | Uses `bin/vigilia` help commands, no Docker harnessing in the module. Exact-output comparisons need hosted validation. Helpful reference material for a manual. |
 
 The smoke profile currently selects **one** top-level `vigilia` command test.

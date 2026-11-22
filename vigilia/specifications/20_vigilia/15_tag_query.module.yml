@@ -1,5 +1,5 @@
 ---
-name: 20_vigilia/15_tag_query.t
+name: 20_vigilia/15_tag_query.module.yml
 description: Boolean tag-query parsing and precedence
 tags:
   - ci:regression

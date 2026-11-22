@@ -21,9 +21,9 @@ return {
 };
 CONFIG
 
-cat > "$work/specifications/primary.t" <<'YAML'
+cat > "$work/specifications/primary.module.yml" <<'YAML'
 ---
-name: primary.t
+name: primary.module.yml
 description: Hierarchically tagged execution and documentation
 tags:
   - ci:smoke
@@ -72,9 +72,9 @@ command_definitions:
         timeout: 10
 YAML
 
-cat > "$work/specifications/regression.t" <<'YAML'
+cat > "$work/specifications/regression.module.yml" <<'YAML'
 ---
-name: regression.t
+name: regression.module.yml
 description: Regression-only module
 tags: [ci:regression]
 command_definitions:
@@ -87,9 +87,9 @@ command_definitions:
         timeout: 10
 YAML
 
-cat > "$work/specifications/untagged.t" <<'YAML'
+cat > "$work/specifications/untagged.module.yml" <<'YAML'
 ---
-name: untagged.t
+name: untagged.module.yml
 description: Module without explicit tags
 command_definitions:
   - description: Must not run with a tag filter
@@ -101,9 +101,9 @@ command_definitions:
         timeout: 10
 YAML
 
-cat > "$work/specifications/secondary.t" <<'YAML'
+cat > "$work/specifications/secondary.module.yml" <<'YAML'
 ---
-name: secondary.t
+name: secondary.module.yml
 description: Canonical tutorial tags on a second module
 tags: [tutorial]
 command_definitions:
@@ -180,9 +180,9 @@ run_case modules 1 1 --tags ci:smoke --show-modules
 run_case unfiltered 8 4 --regex-selector '.*'
 [[ $(wc -l < "$VIGILIA_TAG_TEST_MARKER") -eq 8 ]] || fail 'Unfiltered run excluded a command'
 
-cat > "$work/specifications/invalid.t" <<'YAML'
+cat > "$work/specifications/invalid.module.yml" <<'YAML'
 ---
-name: invalid.t
+name: invalid.module.yml
 description: Invalid tag structure
 tags: not-an-array
 command_definitions:
@@ -196,10 +196,10 @@ YAML
 rc=0
 "$vigilia" --config-filename "$work/vigilia.config" \
     --console-type linear --reporting-directory "$work/report-invalid" \
-    --regex-selector 'invalid\.t$' --tags ci:smoke \
+    --regex-selector 'invalid\.module\.yml$' --tags ci:smoke \
     > "$work/invalid.log" 2>&1 || rc=$?
 (( rc != 0 )) || fail 'Malformed tags unexpectedly accepted'
-grep -q 'Invalid tags for invalid.t' "$work/invalid.log" ||
+grep -q 'Invalid tags for invalid.module.yml' "$work/invalid.log" ||
     fail 'Malformed tags did not produce a useful diagnostic'
 
 # The removed singular `tag` key must fail closed at every level, even for
@@ -207,9 +207,9 @@ grep -q 'Invalid tags for invalid.t' "$work/invalid.log" ||
 for level in module command test; do
     case "$level" in
         module)
-            cat > "$work/specifications/deprecated.t" <<'YAML'
+            cat > "$work/specifications/deprecated.module.yml" <<'YAML'
 ---
-name: deprecated.t
+name: deprecated.module.yml
 description: Unsupported singular module tag
 tag: tutorial
 command_definitions:
@@ -221,9 +221,9 @@ command_definitions:
 YAML
             ;;
         command)
-            cat > "$work/specifications/deprecated.t" <<'YAML'
+            cat > "$work/specifications/deprecated.module.yml" <<'YAML'
 ---
-name: deprecated.t
+name: deprecated.module.yml
 description: Unsupported singular command tag
 tags: [tutorial]
 command_definitions:
@@ -236,9 +236,9 @@ command_definitions:
 YAML
             ;;
         test)
-            cat > "$work/specifications/deprecated.t" <<'YAML'
+            cat > "$work/specifications/deprecated.module.yml" <<'YAML'
 ---
-name: deprecated.t
+name: deprecated.module.yml
 description: Unsupported singular assertion tag
 tags: [tutorial]
 command_definitions:
@@ -254,7 +254,7 @@ YAML
     rc=0
     "$vigilia" --config-filename "$work/vigilia.config" \
         --console-type linear --reporting-directory "$work/report-removed-$level" \
-        --regex-selector 'deprecated\.t$' --show-modules \
+        --regex-selector 'deprecated\.module\.yml$' --show-modules \
         > "$work/removed-$level.log" 2>&1 || rc=$?
     (( rc != 0 )) || fail "Singular $level tag unexpectedly accepted"
     grep -Fq "'tag' is unsupported; use 'tags' (YAML array)" \

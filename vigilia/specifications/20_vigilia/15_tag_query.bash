@@ -25,7 +25,7 @@ for pair in 'both:tutorial,ci:regression' 'tutorial:tutorial' \
     name=${pair%%:*}
     tags=${pair#*:}
     {
-        printf '%s\n' '---' "name: $name.t" "description: $name"
+        printf '%s\n' '---' "name: $name.module.yml" "description: $name"
         if [[ -n $tags ]]; then
             printf 'tags: [%s]\n' "$tags"
         fi
@@ -38,7 +38,7 @@ command_definitions:
         exit_code: 0
         timeout: 10
 YAML
-    } > "$work/specifications/$name.t"
+    } > "$work/specifications/$name.module.yml"
 done
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -73,7 +73,7 @@ run_case and 1 1 --tag-query 'tutorial AND ci:regression'
 run_case or 3 3 --tag-query 'tutorial OR manual'
 run_case precedence 2 2 --tag-query 'tutorial OR manual AND ci:regression'
 run_case grouped 1 1 --tag-query '(tutorial OR manual) AND ci:regression'
-# Of the five modules, only tutorial.t has tutorial but not ci:regression.
+# Of the five modules, only tutorial.module.yml has tutorial but not ci:regression.
 run_case not 1 1 --tag-query 'tutorial AND NOT ci:regression'
 run_case pure-not 3 3 --tag-query 'NOT ci:regression'
 run_case quoted 2 2 --tag-query '"ci:regression"'
@@ -98,9 +98,9 @@ grep -q -- '--tag-query cannot be combined with --tags' "$work/mixed.log" ||
     fail 'missing mixed-filter diagnostic'
 # Nested knowledge-base selection: namespaced child tags override the same
 # parent namespace, but bare documentation labels accumulate on descendants.
-cat > "$work/specifications/effective.t" <<'YAML'
+cat > "$work/specifications/effective.module.yml" <<'YAML'
 ---
-name: effective.t
+name: effective.module.yml
 description: Combined documentation and CI metadata
 tags: [tutorial, ci:smoke, ci:regression]
 command_definitions:
@@ -140,9 +140,9 @@ command_definitions:
         exit_code: 0
 YAML
 
-cat > "$work/specifications/descendant.t" <<'YAML'
+cat > "$work/specifications/descendant.module.yml" <<'YAML'
 ---
-name: descendant.t
+name: descendant.module.yml
 description: A module lacking the requested tutorial and CI tags
 tags: [manual]
 command_definitions:
@@ -155,9 +155,9 @@ command_definitions:
         exit_code: 0
 YAML
 
-cat > "$work/specifications/assertion.t" <<'YAML'
+cat > "$work/specifications/assertion.module.yml" <<'YAML'
 ---
-name: assertion.t
+name: assertion.module.yml
 description: Never start a command with no matching assertion
 tags: [tutorial, ci:smoke, ci:regression]
 command_definitions:
@@ -170,41 +170,41 @@ command_definitions:
         exit_code: 0
 YAML
 
-run_case effective-smoke 3 1 --regex-selector 'effective\.t$' \
+run_case effective-smoke 3 1 --regex-selector 'effective\.module\.yml$' \
     --tag-query 'tutorial AND ci:smoke'
 printf '%s\n' base manual-command smoke-command | sort > "$work/expected-smoke"
 sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-smoke"
 cmp -s "$work/actual-smoke" "$work/expected-smoke" || fail 'Smoke query crossed CI override'
 
-run_case effective-regression 4 1 --regex-selector 'effective\.t$' \
+run_case effective-regression 4 1 --regex-selector 'effective\.module\.yml$' \
     --tag-query 'tutorial AND ci:regression'
 printf '%s\n' base manual-command regression-command regression-test | sort > "$work/expected-regression"
 sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-regression"
 cmp -s "$work/actual-regression" "$work/expected-regression" || fail 'Regression query did not respect hierarchy'
 
-run_case effective-manual 1 1 --regex-selector 'effective\.t$' \
+run_case effective-manual 1 1 --regex-selector 'effective\.module\.yml$' \
     --tag-query 'manual AND ci:regression'
 [[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == manual-command ]] || fail 'Bare tag accumulation failed'
 
-run_case descendant 1 1 --regex-selector 'descendant\.t$' \
+run_case descendant 1 1 --regex-selector 'descendant\.module\.yml$' \
     --tag-query 'tutorial AND ci:regression'
 [[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == descendant ]] || fail 'Descendant did not activate module'
 
-run_case assertion-excluded 0 0 --regex-selector 'assertion\.t$' \
+run_case assertion-excluded 0 0 --regex-selector 'assertion\.module\.yml$' \
     --tag-query 'ci:smoke'
 [[ ! -e $VIGILIA_TAG_QUERY_MARKER ]] || fail 'Excluded assertion started command'
 
-run_case assertion-selected 1 1 --regex-selector 'assertion\.t$' \
+run_case assertion-selected 1 1 --regex-selector 'assertion\.module\.yml$' \
     --tag-query 'ci:regression'
 [[ $(cat "$VIGILIA_TAG_QUERY_MARKER") == UNEXPECTED ]] || fail 'Selected assertion did not run'
 
-run_case inspection-hierarchy 4 1 --regex-selector 'effective\.t$' \
+run_case inspection-hierarchy 4 1 --regex-selector 'effective\.module\.yml$' \
     --tag-query 'tutorial AND ci:regression' --show-command-tests
 [[ ! -e $VIGILIA_TAG_QUERY_MARKER ]] || fail 'Documentation inspection executed commands'
 
 # The existing --tags semantics still narrow on each explicitly tagged child
 # rather than applying the additive effective-tag expression semantics.
-run_case legacy-hierarchy 2 1 --regex-selector 'effective\.t$' --tags ci:smoke
+run_case legacy-hierarchy 2 1 --regex-selector 'effective\.module\.yml$' --tags ci:smoke
 printf '%s\n' base smoke-command | sort > "$work/expected-legacy"
 sort "$VIGILIA_TAG_QUERY_MARKER" > "$work/actual-legacy"
 cmp -s "$work/actual-legacy" "$work/expected-legacy" || fail 'Legacy --tags selection changed'
