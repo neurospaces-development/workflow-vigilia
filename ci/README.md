@@ -27,7 +27,12 @@ VIGILIA_REGEX_SELECTOR='20_vigilia/13_inspection_exit_code\.t$' ci/test.sh
 
 The provisioning list is a candidate until tested on a clean Ubuntu 24.04 runner.
 The full entry point runs autogen, configure, make, sudo make install and make
-check. Never run untrusted project code with elevated access on a shared host.
+check. The full installation explicitly sets `CPAN_INSTALL_STRICT_TESTS=1`
+**inside** the elevated environment, so bundled CPAN `make test` failures stop
+installation instead of being logged as warnings. The opt-in setting does not
+change ordinary `make install` behaviour outside CI. Modules already installed
+at the required version are skipped and are not retested. Never run untrusted
+project code with elevated access on a shared host.
 Run one job at a time per checkout and per system installation.
 
 ## Evidence and exit status

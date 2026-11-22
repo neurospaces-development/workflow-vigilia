@@ -81,7 +81,9 @@ if (( build )); then
     run_step autogen ./autogen.sh
     run_step configure ./configure
     run_step build make
-    run_step install sudo -n make install
+    # Put the strict mode inside the sudo environment: sudo commonly
+    # discards caller environment variables.
+    run_step install sudo -n env CPAN_INSTALL_STRICT_TESTS=1 make install
 fi
 
 # These are generated Automake outputs. Clear them only immediately before

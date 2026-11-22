@@ -7,6 +7,12 @@ my $module_filenames = [ sort @ARGV, ];
 
 use Data::Dumper;
 
+# Preserve the historical best-effort installation by default. CI can
+# explicitly fail installation when a bundled module fails its test suite.
+my $strict_tests = $ENV{CPAN_INSTALL_STRICT_TESTS} // '0';
+die "cpan_install: *** ERROR: CPAN_INSTALL_STRICT_TESTS must be 0 or 1\n"
+    unless $strict_tests =~ /\A[01]\z/;
+
 # Run a shell command and abort the whole installation if it fails, so that a
 # broken build (for example a missing Python.h when python3-dev is not installed)
 # can never masquerade as success and silently leave an older version of the
@@ -128,7 +134,14 @@ foreach my $module_filename (@$module_filenames)
 
     run_or_die("make", "building $module_name");
 
-    run_or_warn("make test", "testing $module_name");
+    if ($strict_tests)
+    {
+        run_or_die("make test", "testing $module_name");
+    }
+    else
+    {
+        run_or_warn("make test", "testing $module_name");
+    }
 
     run_or_die("sudo make install", "installing $module_name");
 
