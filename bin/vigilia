@@ -3125,6 +3125,21 @@ sub cd_run
 
     my $executor = shift;
 
+    # Do not start a command (or its preparation) if all of its assertions
+    # are excluded by the tag filter. In particular, test-level restrictions
+    # must never cause command side effects in a narrower CI profile.
+    if (@$option_tags)
+    {
+        my $tests = $command_definition->{command_tests} // [];
+
+        my $has_selected_test = grep {
+            Heterarch::Test::Element::matches_tags($_, 1)
+        } @$tests;
+
+        return "command_definition has no tests selected by tag"
+            unless $has_selected_test;
+    }
+
     # do selection and prepare the test environment
 
     my $module_definition = $execution_context->get_module_definition();
@@ -5446,34 +5461,67 @@ package Heterarch::Test::Element;
 our $selected_output_levels;
 
 
-# could also use Array::Util, but it is not always installed
+# Tags are content metadata, shared by execution, inspection and documentation.
+# A module needs an explicit matching tag when a filter is active. Untagged
+# descendants inherit selection; an explicitly tagged descendant narrows it.
+# Multiple requested tags have OR semantics. Duplicates have no effect.
+#
+# Keep "tag" as an alias for older specifications, but use "tags" (an array)
+# for all new specifications.
 
-sub array_union_intersection_difference
+sub _tag_values
 {
-    my $array1 = shift;
+    my $element = shift;
 
-    my $array2 = shift;
+    my $label = $element->{name} // $element->{description} // '<unnamed>';
 
-    my (@union, @intersection, @difference);
+    die "Invalid tags for $label: both tag and tags are defined\n"
+        if exists $element->{tags} && exists $element->{tag};
 
-    my %count = ();
+    my $tags = exists $element->{tags}
+        ? $element->{tags}
+        : $element->{tag};
 
-    foreach my $element (@$array1, @$array2)
+    return [] unless defined $tags;
+
+    # Historical singular spelling permits a scalar or an array.
+    $tags = [ $tags ] if exists $element->{tag} && !ref $tags;
+
+    die "Invalid tags for $label: expected a YAML array\n"
+        unless ref $tags eq 'ARRAY';
+
+    for my $tag (@$tags)
     {
-	$count{$element}++
+        die "Invalid tags for $label: tags must be nonempty strings\n"
+            if !defined $tag || ref $tag || $tag eq '';
     }
 
-    foreach my $element (keys %count)
-    {
-	push @union, $element;
+    return $tags;
+}
 
-	push @{ $count{$element} > 1
-		    ? \@intersection
-		    : \@difference },
-		    $element;
+
+sub matches_tags
+{
+    my $element = shift;
+
+    my $parent_selected = shift // 0;
+
+    return ':all' unless scalar @$option_tags;
+
+    my $tags = _tag_values($element);
+
+    # Only descendants may inherit a selection. An untagged module is
+    # deliberately excluded whenever --tags is supplied.
+    return $parent_selected ? 'inherited' : undef unless @$tags;
+
+    my %requested = map { $_ => 1 } @$option_tags;
+
+    for my $tag (@$tags)
+    {
+        return 'matched' if $requested{$tag};
     }
 
-    return ( \@union, \@intersection, \@difference );
+    return undef;
 }
 
 
@@ -5484,6 +5532,8 @@ sub is_selected
     my $self = shift;
 
     my $reporter = shift;
+
+    my $parent_tag_selected = shift // 0;
 
     # implement a logical and of the different selection criteria
 
@@ -5496,7 +5546,7 @@ sub is_selected
 
     if ($result)
     {
-	$result = $self->is_selected_by_tag($reporter);
+	$result = $self->is_selected_by_tag($reporter, $parent_tag_selected);
     }
 
     return $result;
@@ -5549,7 +5599,7 @@ sub is_selected_by_output_level_options
 }
 
 
-# return true if this element definition has a tag that matches the tag options.
+# Return a selection result and record exclusions in the native report.
 
 sub is_selected_by_tag
 {
@@ -5557,49 +5607,37 @@ sub is_selected_by_tag
 
     my $reporter = shift;
 
-    my $element_name = $element_definition->{name};
+    my $parent_tag_selected = shift // 0;
+
+    my $element_name = $element_definition->{name} // $element_definition->{description} // '<unnamed>';
 
     if (defined $option_debugging
-	and $option_debugging eq 'tags')
+        and $option_debugging eq 'tags')
     {
-	Utilities::yaml_dump_stdout(
-				    {
-				     option_debugging => {
-							  selected_by_tag_element_name => $element_name,
-							 },
-				    },
-				   );
+        Utilities::yaml_dump_stdout(
+            { option_debugging => { selected_by_tag_element_name => $element_name } },
+        );
     }
 
-    if (not scalar @$option_tags)
+    my $selection = matches_tags($element_definition, $parent_tag_selected);
+
+    return $selection if $selection;
+
+    if ($global_test_report->{output_format} eq 'executor')
     {
-	return ":all";
+        my $error_count = $reporter->get_error_count();
+
+        $reporter->report_message_info("message_info",
+            "Element $element_definition->{description} is not selected by tag ("
+            . (join ", ", @$option_tags)
+            . " are selected tags).\nTotal of "
+            . "$global_test_report->{global}->{test_counters}->{current}->{command_test}"
+            . " test(s) (encountered $error_count error(s) so far)");
     }
 
-    my $element_definition_tags = $element_definition->{tags};
+    $global_test_report->{not_selected_by_tag}->{elements}->{$element_name} = 'not_selected_by_tag';
 
-    # use Array::Util qw(intersect);
-
-    my ( $union, $intersection, $difference ) = array_union_intersection_difference($element_definition_tags, $option_tags);
-
-    if (scalar @$intersection)
-    {
-	return $intersection;
-    }
-    else
-    {
-	if ($global_test_report->{output_format} eq 'executor')
-	{
-	    my $error_count = $reporter->get_error_count();
-
-	    $reporter->report_message_info("message_info", "Element $element_definition->{description} is not selected by tag (" . (join ", ", @$option_tags ) . " are selected tags).
-Total of $global_test_report->{global}->{test_counters}->{current}->{command_test} test(s) (encountered $error_count error(s) so far)");
-	}
-
-	$global_test_report->{not_selected_by_tag}->{elements}->{$element_name} = 'not_selected_by_tag';
-
-	return undef;
-    }
+    return undef;
 }
 
 
@@ -6432,7 +6470,9 @@ sub ec_is_selected
 
     if ($result)
     {
-	$result = $active_element->is_selected($reporter);
+        # Commands and tests are reached only through selected parents.
+        # Untagged descendants therefore inherit their parent's tag match.
+	$result = $active_element->is_selected($reporter, defined $command_definition ? 1 : 0);
     }
 
     return $result;
