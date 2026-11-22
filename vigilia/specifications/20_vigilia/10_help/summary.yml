@@ -1,4 +1,7 @@
 ---
+tags:
+  - ci:regression
+  - manual
 description: vigilia tester help and usage information
 documentation:
   explanation: |+2

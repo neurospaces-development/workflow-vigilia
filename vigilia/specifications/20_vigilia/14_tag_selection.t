@@ -1,4 +1,6 @@
 ---
+tags:
+  - ci:regression
 name: 20_vigilia/14_tag_selection.t
 description: Hierarchical tag selection for execution, inspection, manuals and tutorials
 documentation:

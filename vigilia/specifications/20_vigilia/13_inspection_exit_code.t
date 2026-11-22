@@ -1,4 +1,7 @@
 ---
+tags:
+  - ci:smoke
+  - ci:regression
 name: 20_vigilia/13_inspection_exit_code.t
 description: Runtime exit code assertions and non-executing inspection modes
 documentation:
