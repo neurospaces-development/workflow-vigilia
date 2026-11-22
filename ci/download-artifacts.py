@@ -5,6 +5,7 @@ Only trusted configuration supplies API origins. Credentials are read from
 GITHUB_TOKEN/GH_TOKEN and GITLAB_TOKEN; never pass secrets on the command line.
 """
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -24,7 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / 'configured-workflows/automation-configuration-data/ci_artifacts.yml'
 MAX_JSON = 8 * 1024 * 1024
 MAX_ZIP = 512 * 1024 * 1024
-PROFILES = ('smoke', 'regression')
+PROFILES = ('smoke', 'regression', 'docker')
+MAX_SELECTED_ARTIFACTS = 50
 HEX = re.compile(r'^[0-9a-f]{7,40}$')
 
 
@@ -186,28 +188,51 @@ class GitHub:
     def __init__(self, settings):
         self.repo = settings['repository']
         self.workflow = settings['workflow']
+        self.names = settings.get('artifact_names', {})
         token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
         self.http = RestClient(settings.get('api_base', 'https://api.github.com'), token, 'github')
         self.base = '/repos/' + '/'.join(urllib.parse.quote(x, safe='') for x in self.repo.split('/'))
+
+    @staticmethod
+    def normalize_run(r):
+        return {'id': int(r['id']), 'sha': r['head_sha'], 'status': r['conclusion'],
+                'attempt': int(r.get('run_attempt', 1)), 'created_at': r.get('created_at', ''),
+                'branch': r.get('head_branch')}
 
     def runs(self, branch):
         workflow = urllib.parse.quote(self.workflow, safe='')
         data = self.http.pages(self.base + f'/actions/workflows/{workflow}/runs',
                                {'branch': branch, 'status': 'completed'}, key='workflow_runs')
-        return [{'id': int(r['id']), 'sha': r['head_sha'], 'status': r['conclusion'],
-                 'attempt': int(r.get('run_attempt', 1)), 'created_at': r.get('created_at', '')}
-                for r in data if r.get('status') == 'completed']
+        return [self.normalize_run(r) for r in data if r.get('status') == 'completed']
 
-    def artifacts(self, run, profiles, require_success=False):
+    def run(self, run_id):
+        r = self.http.json(self.base + f'/actions/runs/{run_id}')
+        if r.get('status') != 'completed':
+            raise ArtifactError(f'GitHub run {run_id} is not completed')
+        workflow = r.get('path', '').split('@', 1)[0]
+        if workflow and workflow.split('/')[-1] != self.workflow:
+            raise ArtifactError(f'GitHub run {run_id} belongs to a different workflow')
+        return self.normalize_run(r)
+
+    def expected_name(self, profile, run):
+        patterns = {
+            'smoke': 'vigilia-results-smoke-{run_id}-{attempt}',
+            'regression': 'vigilia-results-regression-{run_id}-{attempt}',
+            'docker': 'vigilia-docker-pilot-{run_id}-{attempt}',
+        }
+        pattern = self.names.get(profile, patterns[profile])
+        return pattern.format(run_id=run['id'], attempt=run['attempt'])
+
+    def inventory(self, run):
         items = self.http.pages(self.base + f"/actions/runs/{run['id']}/artifacts", key='artifacts')
-        found = {}
-        for profile in profiles:
-            name = f"vigilia-results-{profile}-{run['id']}-{run['attempt']}"
-            choices = [a for a in items if a.get('name') == name and not a.get('expired', True)]
-            if len(choices) != 1:
-                raise ArtifactError(f'GitHub run {run["id"]}: missing or ambiguous artifact {name}')
-            found[profile] = {'id': int(choices[0]['id']), 'name': name}
-        return found
+        result = []
+        for a in items:
+            profile = next((p for p in PROFILES if a.get('name') == self.expected_name(p, run)), None)
+            result.append({'id': int(a['id']), 'name': a['name'], 'profile': profile,
+                           'status': 'expired' if a.get('expired', True) else 'available',
+                           'available': not a.get('expired', True),
+                           'size': int(a.get('size_in_bytes') or 0)})
+        return result
 
     def download(self, artifact, dest):
         self.http.zip(self.base + f"/actions/artifacts/{artifact['id']}/zip", dest)
@@ -220,32 +245,75 @@ class GitLab:
         self.http = RestClient(settings.get('api_base', 'https://gitlab.com/api/v4'), token, 'gitlab')
         self.base = '/projects/' + urllib.parse.quote(self.project, safe='')
         self.job_prefix = settings.get('job_prefix', 'vigilia-regression')
+        self.names = settings.get('job_names', {})
+
+    @staticmethod
+    def normalize_run(r):
+        return {'id': int(r['id']), 'sha': r['sha'], 'status': r['status'],
+                'attempt': 1, 'created_at': r.get('created_at', ''),
+                'branch': r.get('ref')}
 
     def runs(self, branch):
         data = self.http.pages(self.base + '/pipelines',
                                {'ref': branch, 'order_by': 'id', 'sort': 'desc'})
-        return [{'id': int(r['id']), 'sha': r['sha'], 'status': r['status'],
-                 'attempt': 1, 'created_at': r.get('created_at', '')}
-                for r in data if r.get('status') in ('success', 'failed')]
+        return [self.normalize_run(r) for r in data if r.get('status') in ('success', 'failed', 'canceled')]
 
-    def artifacts(self, run, profiles, require_success=False):
+    def run(self, run_id):
+        r = self.http.json(self.base + f'/pipelines/{run_id}')
+        if r.get('status') not in ('success', 'failed', 'canceled'):
+            raise ArtifactError(f'GitLab pipeline {run_id} is not completed')
+        return self.normalize_run(r)
+
+    def expected_name(self, profile, run):
+        names = {'smoke': f'{self.job_prefix}: [smoke]',
+                 'regression': f'{self.job_prefix}: [regression]',
+                 'docker': 'vigilia-docker-pilot'}
+        return self.names.get(profile, names[profile])
+
+    def inventory(self, run):
         jobs = self.http.pages(self.base + f"/pipelines/{run['id']}/jobs",
                                {'include_retried': 'false'})
-        found = {}
-        for profile in profiles:
-            name = f'{self.job_prefix}: [{profile}]'
-            choices = [j for j in jobs if j.get('name') == name and
-                       j.get('status') in (('success',) if require_success else ('success', 'failed')) and
-                       isinstance(j.get('artifacts_file'), dict) and
-                       j['artifacts_file'].get('size', 0) > 0]
-            if len(choices) != 1:
-                raise ArtifactError(f'GitLab pipeline {run["id"]}: missing or ambiguous job artifacts {name}')
-            found[profile] = {'id': int(choices[0]['id']), 'name': name}
-        return found
+        result = []
+        for j in jobs:
+            size = (j.get('artifacts_file') or {}).get('size', 0)
+            profile = next((p for p in PROFILES if j.get('name') == self.expected_name(p, run)), None)
+            result.append({'id': int(j['id']), 'name': j['name'], 'profile': profile,
+                           'status': j.get('status', 'unknown'),
+                           'available': isinstance(size, int) and size > 0,
+                           'size': int(size or 0)})
+        return result
 
     def download(self, artifact, dest):
         self.http.zip(self.base + f"/jobs/{artifact['id']}/artifacts", dest)
 
+
+def choose_artifacts(provider, client, run, inventory, profiles, names, all_artifacts, ids, require_success):
+    """Choose job artifact archives; never infer success from artifact presence."""
+    available = [a for a in inventory if a['available'] and
+                 (not require_success or a['status'] in ('available', 'success'))]
+    if ids:
+        wanted = set(ids)
+        choices = [a for a in available if a['id'] in wanted]
+        if {a['id'] for a in choices} != wanted:
+            raise ArtifactError(f'{provider} run {run["id"]}: requested artifact/job ID unavailable')
+    elif profiles:
+        choices = []
+        for profile in profiles:
+            matches = [a for a in available if a['name'] == client.expected_name(profile, run)]
+            if len(matches) != 1:
+                raise ArtifactError(f'{provider} run {run["id"]}: missing or ambiguous {profile} artifact')
+            choices += matches
+    elif names:
+        choices = [a for a in available if any(fnmatch.fnmatchcase(a['name'], g) for g in names)]
+    elif all_artifacts:
+        choices = available
+    else:
+        raise ArtifactError('No artifact selector supplied')
+    if not choices:
+        raise ArtifactError(f'{provider} run {run["id"]}: no matching artifact archives')
+    if len(choices) > MAX_SELECTED_ARTIFACTS:
+        raise ArtifactError(f'Too many artifact archives selected ({len(choices)} > {MAX_SELECTED_ARTIFACTS})')
+    return choices
 
 def select(providers, candidates, mode, revision):
     if revision:
@@ -321,13 +389,17 @@ def combine(directory, manifest, name):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command', choices=('list', 'download', 'verify', 'report'))
+    p.add_argument('command', choices=('list', 'inventory', 'download', 'verify', 'report'))
     p.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     p.add_argument('--provider', action='append', choices=('github', 'gitlab'))
     p.add_argument('--profile', action='append', choices=PROFILES)
     p.add_argument('--mode', choices=('latest', 'latest-successful', 'revision'))
     p.add_argument('--revision', help='Full Git SHA or unambiguous prefix')
     p.add_argument('--branch')
+    p.add_argument('--run-id', type=int, help='GitHub workflow-run or GitLab pipeline ID (one provider)')
+    p.add_argument('--id', action='append', type=int, help='Exact GitHub artifact or GitLab job ID')
+    p.add_argument('--name', action='append', help='Glob matching GitHub artifact or GitLab job name')
+    p.add_argument('--all', action='store_true', help='All available artifact archives in selected run')
     p.add_argument('--output', type=Path)
     args = p.parse_args(argv)
     cfg = config_load(args.config)
@@ -340,44 +412,77 @@ def main(argv=None):
         rev = pointer['revision']
         if not re.fullmatch('[0-9a-f]{40}', rev):
             raise ArtifactError('Invalid latest revision')
-        manifest = artifact_verify(directory / rev / 'manifest.json')
+        manifest_rel = pointer.get('manifest', f'{rev}/manifest.json')
+        manifest_file = directory / manifest_rel
+        if not manifest_file.resolve().is_relative_to((directory / rev).resolve()):
+            raise ArtifactError('Unsafe latest manifest pointer')
+        manifest = artifact_verify(manifest_file)
         if args.command == 'report':
             for item in manifest['artifacts']:
-                print(f"{item['provider']:6} {item['profile']:10} run={item['run_id']} artifact={item['artifact_id']}")
+                print(f"{item['provider']:6} {item['profile']:10} run={item['run_id']} artifact={item['artifact_id']} name={item['artifact_name']}")
         else:
             print(f'Verified {len(manifest["artifacts"])} archives for {rev}')
         return 0
 
     providers = list(dict.fromkeys(args.provider or cfg.get('providers', ['github', 'gitlab'])))
-    profiles = list(dict.fromkeys(args.profile or cfg.get('profiles', list(PROFILES))))
-    if not providers or not profiles:
-        raise ArtifactError('At least one provider and profile are required')
+    if not providers:
+        raise ArtifactError('At least one provider required')
+    selectors = sum(bool(x) for x in (args.profile, args.name, args.all, args.id))
+    if selectors > 1:
+        raise ArtifactError('Use only one of --profile, --name, --all, or --id')
+    if args.run_id is not None and (args.run_id < 1 or len(providers) != 1):
+        raise ArtifactError('--run-id requires one provider and a positive ID')
+    if args.id and (len(providers) != 1 or args.run_id is None or any(i < 1 for i in args.id)):
+        raise ArtifactError('--id requires one provider and --run-id')
+    if args.command == 'inventory' and (args.name or args.profile or args.all or args.id):
+        raise ArtifactError('inventory lists all jobs; selection flags are for download')
+    if args.mode == 'revision' and not args.revision:
+        raise ArtifactError('--mode revision requires --revision')
     mode = args.mode or cfg.get('selection', {}).get('mode', 'latest-successful')
     revision = args.revision
-    if mode == 'revision' and not revision:
-        raise ArtifactError('--mode revision requires --revision')
     branch = args.branch or cfg.get('branch', 'ci/regression-integration')
     objects = {provider: (GitHub(cfg['github']) if provider == 'github' else GitLab(cfg['gitlab']))
                for provider in providers}
-    candidates = {provider: obj.runs(branch) for provider, obj in objects.items()}
+    if args.run_id is not None:
+        only = providers[0]
+        candidates = {only: [objects[only].run(args.run_id)]}
+        if mode == 'latest-successful' and candidates[only][0]['status'] != 'success':
+            # Explicit IDs identify the requested run, including failed pilots.
+            mode = 'latest'
+    else:
+        candidates = {provider: obj.runs(branch) for provider, obj in objects.items()}
     if args.command == 'list':
         print(json.dumps(candidates, indent=2))
         return 0
     sha, chosen = select(providers, candidates, mode, revision)
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ArtifactError('Unexpected revision from API')
-    discovered = {provider: objects[provider].artifacts(chosen[provider], profiles, mode == 'latest-successful')
-                  for provider in providers}
+    if args.command == 'inventory':
+        print(json.dumps({'revision': sha, 'runs': chosen,
+                          'artifacts': {provider: objects[provider].inventory(chosen[provider])
+                                        for provider in providers}}, indent=2))
+        return 0
+
+    profiles = list(dict.fromkeys(args.profile or []))
+    if not selectors:
+        profiles = list(dict.fromkeys(cfg.get('profiles', ['smoke', 'regression'])))
+    discovered = {}
+    for provider in providers:
+        discovered[provider] = choose_artifacts(provider, objects[provider], chosen[provider],
+            objects[provider].inventory(chosen[provider]), profiles, args.name or [], args.all,
+            args.id or [], mode == 'latest-successful')
 
     target = directory / sha
     entries = []
     for provider in providers:
         run = chosen[provider]
-        for profile in profiles:
-            artifact = discovered[provider][profile]
-            relative = f'{provider}/{profile}/artifact-{artifact["id"]}.zip'
+        for artifact in discovered[provider]:
+            profile = artifact['profile'] or 'custom'
+            # Preserve the familiar directory structure for named profiles.
+            category = profile if profile in PROFILES else 'selected'
+            relative = f'{provider}/{category}/artifact-{artifact["id"]}.zip'
             destination = target / relative
-            allow_missing = run['status'] != 'success'
+            allow_missing = run['status'] != 'success' or artifact['status'] == 'failed'
             if destination.exists():
                 verified = validate_zip(destination, sha, allow_missing)
                 print(f'Reusing {destination}')
@@ -386,20 +491,33 @@ def main(argv=None):
                 verified = validate_zip(destination, sha, allow_missing)
                 print(f'Downloaded {destination}')
             if not verified:
-                print(f'Warning: early failed job has no environment.txt; revision verified only by provider API: {destination}', file=sys.stderr)
+                print(f'Warning: job without environment.txt; revision verified only by provider API: {destination}', file=sys.stderr)
             entries.append({'provider': provider, 'profile': profile, 'run_id': run['id'],
                             'run_status': run['status'], 'run_attempt': run['attempt'],
+                            'job_status': artifact['status'],
                             'artifact_id': artifact['id'], 'artifact_name': artifact['name'],
                             'file': relative, 'sha256': sha256(destination), 'size': destination.stat().st_size,
                             'embedded_revision_verified': verified})
-    manifest = {'schema_version': 1, 'revision': sha, 'branch': branch, 'selection': mode,
+    manifest = {'schema_version': 1, 'revision': sha,
+                'branch': chosen[providers[0]].get('branch') or branch, 'selection': mode,
                 'generated_at': datetime.now(timezone.utc).isoformat(), 'artifacts': entries}
-    atomic_json(target / 'manifest.json', manifest)
-    bundle = combine(target, manifest, f'workflow-vigilia-ci-{sha[:12]}.zip')
-    atomic_json(directory / 'latest.json', {'revision': sha, 'manifest': f'{sha}/manifest.json',
+
+    # Preserve independent selections of the same revision; a Docker-pilot
+    # diagnosis must not overwrite the earlier smoke/regression evidence.
+    key = json.dumps([(a['provider'], a['artifact_id'], a['run_id']) for a in entries], sort_keys=True)
+    digest = hashlib.sha256(key.encode('utf-8')).hexdigest()[:12]
+    default_selection = (not selectors and not args.run_id and not args.revision and
+                         len(providers) == len(cfg.get('providers', ['github', 'gitlab'])) and
+                         set(providers) == set(cfg.get('providers', ['github', 'gitlab'])))
+    manifest_name = 'manifest.json' if default_selection else f'manifest-{digest}.json'
+    bundle_name = (f'workflow-vigilia-ci-{sha[:12]}.zip' if default_selection else
+                   f'workflow-vigilia-ci-{sha[:12]}-{digest}.zip')
+    atomic_json(target / manifest_name, manifest)
+    bundle = combine(target, manifest, bundle_name)
+    atomic_json(directory / 'latest.json', {'revision': sha, 'manifest': f'{sha}/{manifest_name}',
                                             'bundle': f'{sha}/{bundle.name}'})
     print(f'Bundle: {bundle}')
-    print(f'Manifest: {target / "manifest.json"}')
+    print(f'Manifest: {target / manifest_name}')
     return 0
 
 
