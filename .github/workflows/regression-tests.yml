@@ -15,12 +15,16 @@ permissions:
 
 jobs:
   regression-tests:
-    name: Vigilia regression (Ubuntu 24.04)
+    name: Vigilia ${{ matrix.profile }} (Ubuntu 24.04)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [smoke, regression]
     env:
       CI_RESULTS_DIR: ${{ github.workspace }}/ci-results
-      VIGILIA_REGEX_SELECTOR: '20_vigilia/13_inspection_exit_code'
+      VIGILIA_TEST_PROFILE: ${{ matrix.profile }}
 
     steps:
       - name: Check out source
@@ -78,7 +82,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: vigilia-results-${{ github.run_id }}-${{ github.run_attempt }}
+          name: vigilia-results-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-results/
           retention-days: 30
           if-no-files-found: warn

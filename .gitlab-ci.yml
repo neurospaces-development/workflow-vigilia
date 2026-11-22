@@ -1,5 +1,5 @@
 # GitLab.com hosted-runner pilot; does not require a dedicated shell runner.
-# Like the GitHub pilot, this selects only the non-Docker vigilia regression.
+# Run separate non-Docker smoke and regression profiles using the same CI entry point.
 # During the pilot, run only on named branches. Untrusted merge-request code
 # must not receive passwordless sudo in a privileged CI job container.
 # GitLab's Ubuntu job container starts as root, while ci/test.sh deliberately
@@ -18,8 +18,10 @@ vigilia-regression:
   stage: test
   image: ubuntu:24.04
   timeout: 60 minutes
+  parallel:
+    matrix:
+      - VIGILIA_TEST_PROFILE: [smoke, regression]
   variables:
-    VIGILIA_REGEX_SELECTOR: '20_vigilia/13_inspection_exit_code'
     DEBIAN_FRONTEND: noninteractive
   script:
     - |
@@ -52,7 +54,7 @@ vigilia-regression:
         }
       sudo -H -u vigilia-ci env \
         CI_RESULTS_DIR="$CI_RESULTS_DIR" \
-        VIGILIA_REGEX_SELECTOR="$VIGILIA_REGEX_SELECTOR" \
+        VIGILIA_TEST_PROFILE="$VIGILIA_TEST_PROFILE" \
         ./ci/test.sh
 
       # Negative probe: the internal CI gate must reject an empty selection.
@@ -60,6 +62,7 @@ vigilia-regression:
       probe_root="$CI_RESULTS_DIR/negative-probe"
       if sudo -H -u vigilia-ci env \
          CI_RESULTS_DIR="$probe_root" \
+         VIGILIA_TEST_PROFILE="$VIGILIA_TEST_PROFILE" \
          VIGILIA_REGEX_SELECTOR='^__vigilia_ci_no_such_module__$' \
          ./ci/test.sh --test-only; then
         echo 'ERROR: Empty selection unexpectedly passed the CI gate' >&2
