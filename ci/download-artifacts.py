@@ -11,8 +11,10 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,6 +29,11 @@ MAX_JSON = 8 * 1024 * 1024
 MAX_ZIP = 512 * 1024 * 1024
 PROFILES = ('smoke', 'regression', 'docker')
 MAX_SELECTED_ARTIFACTS = 50
+DEFAULT_WAIT_TIMEOUT = 1800  # seconds
+DEFAULT_POLL_INTERVAL = 15  # seconds
+TERMINAL_GITHUB = frozenset(('success', 'failure', 'neutral', 'cancelled',
+                             'skipped', 'timed_out', 'action_required', 'stale', 'completed'))
+TERMINAL_GITLAB = frozenset(('success', 'failed', 'canceled', 'skipped'))
 HEX = re.compile(r'^[0-9a-f]{7,40}$')
 
 
@@ -195,19 +202,25 @@ class GitHub:
 
     @staticmethod
     def normalize_run(r):
-        return {'id': int(r['id']), 'sha': r['head_sha'], 'status': r['conclusion'],
+        return {'id': int(r['id']), 'sha': r['head_sha'],
+                'status': (r.get('conclusion') or 'completed') if r.get('status') == 'completed'
+                          else r.get('status', 'unknown'),
                 'attempt': int(r.get('run_attempt', 1)), 'created_at': r.get('created_at', ''),
                 'branch': r.get('head_branch')}
 
-    def runs(self, branch):
+    def runs(self, branch, include_incomplete=False):
         workflow = urllib.parse.quote(self.workflow, safe='')
+        params = {'branch': branch}
+        if not include_incomplete:
+            params['status'] = 'completed'
         data = self.http.pages(self.base + f'/actions/workflows/{workflow}/runs',
-                               {'branch': branch, 'status': 'completed'}, key='workflow_runs')
-        return [self.normalize_run(r) for r in data if r.get('status') == 'completed']
+                               params, key='workflow_runs')
+        return [self.normalize_run(r) for r in data
+                if include_incomplete or r.get('status') == 'completed']
 
-    def run(self, run_id):
+    def run(self, run_id, include_incomplete=False):
         r = self.http.json(self.base + f'/actions/runs/{run_id}')
-        if r.get('status') != 'completed':
+        if not include_incomplete and r.get('status') != 'completed':
             raise ArtifactError(f'GitHub run {run_id} is not completed')
         workflow = r.get('path', '').split('@', 1)[0]
         if workflow and workflow.split('/')[-1] != self.workflow:
@@ -253,14 +266,15 @@ class GitLab:
                 'attempt': 1, 'created_at': r.get('created_at', ''),
                 'branch': r.get('ref')}
 
-    def runs(self, branch):
+    def runs(self, branch, include_incomplete=False):
         data = self.http.pages(self.base + '/pipelines',
                                {'ref': branch, 'order_by': 'id', 'sort': 'desc'})
-        return [self.normalize_run(r) for r in data if r.get('status') in ('success', 'failed', 'canceled')]
+        return [self.normalize_run(r) for r in data
+                if include_incomplete or r.get('status') in ('success', 'failed', 'canceled')]
 
-    def run(self, run_id):
+    def run(self, run_id, include_incomplete=False):
         r = self.http.json(self.base + f'/pipelines/{run_id}')
-        if r.get('status') not in ('success', 'failed', 'canceled'):
+        if not include_incomplete and r.get('status') not in ('success', 'failed', 'canceled'):
             raise ArtifactError(f'GitLab pipeline {run_id} is not completed')
         return self.normalize_run(r)
 
@@ -348,6 +362,69 @@ def select(providers, candidates, mode, revision):
                       for provider in providers}
 
 
+def local_git_head():
+    """Use the source checkout, not an arbitrary directory under the caller's cwd."""
+    try:
+        revision = subprocess.check_output(
+            ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'],
+            stderr=subprocess.DEVNULL, text=True).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ArtifactError('latest-wait requires a Git checkout or --revision FULL_SHA') from exc
+    return revision
+
+
+def wait_for_runs(providers, objects, branch, revision, run_id, timeout, interval):
+    """Wait for all selected providers on one fixed SHA, even if CI starts late.
+
+    Never fall back to an earlier completed revision while this SHA is queued.
+    No artifact inventory/download requests are issued during polling.
+    """
+    if run_id is not None:
+        # Explicit run identity takes precedence over the local checkout.
+        run = objects[providers[0]].run(run_id, include_incomplete=True)
+        target = run['sha']
+        if revision is not None and target != revision:
+            raise ArtifactError(f'Run {run_id} has revision {target}, not {revision}')
+    else:
+        target = revision or local_git_head()
+    if not re.fullmatch(r'[0-9a-f]{40}', target):
+        raise ArtifactError('latest-wait needs a full 40-character revision (--revision FULL_SHA)')
+
+    deadline = time.monotonic() + timeout
+    previous = None
+    while True:
+        selected = {}
+        display = []
+        complete = True
+        for provider in providers:
+            if run_id is not None:
+                runs = [objects[provider].run(run_id, include_incomplete=True)]
+            else:
+                runs = objects[provider].runs(branch, include_incomplete=True)
+            match = next((r for r in runs if r['sha'] == target), None)
+            if match is None:
+                complete = False
+                display.append(f'{provider}=not-started')
+                continue
+            selected[provider] = match
+            terminal = TERMINAL_GITHUB if provider == 'github' else TERMINAL_GITLAB
+            if match['status'] not in terminal:
+                complete = False
+            display.append(f"{provider}={match['status']} (run {match['id']})")
+
+        state = tuple(display)
+        if state != previous:
+            print(f"CI revision {target[:12]}: {', '.join(display)}", file=sys.stderr, flush=True)
+            previous = state
+        if complete:
+            print(f'All requested CI pipelines finished for {target}', file=sys.stderr, flush=True)
+            return target, selected
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ArtifactError(f"Timed out waiting for {target} after {timeout}s: {', '.join(display)}")
+        time.sleep(min(interval, remaining))
+
+
 def config_load(path):
     with path.open(encoding='utf-8') as stream:
         result = yaml.safe_load(stream)
@@ -393,8 +470,10 @@ def main(argv=None):
     p.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     p.add_argument('--provider', action='append', choices=('github', 'gitlab'))
     p.add_argument('--profile', action='append', choices=PROFILES)
-    p.add_argument('--mode', choices=('latest', 'latest-successful', 'revision'))
-    p.add_argument('--revision', help='Full Git SHA or unambiguous prefix')
+    p.add_argument('--mode', choices=('latest', 'latest-successful', 'latest-wait', 'revision'))
+    p.add_argument('--revision', help='Git SHA (full 40-character SHA required for latest-wait)')
+    p.add_argument('--wait-timeout', type=float, help='Maximum seconds to wait (default: 1800)')
+    p.add_argument('--poll-interval', type=float, help='Seconds between checks (default: 15)')
     p.add_argument('--branch')
     p.add_argument('--run-id', type=int, help='GitHub workflow-run or GitLab pipeline ID (one provider)')
     p.add_argument('--id', action='append', type=int, help='Exact GitHub artifact or GitLab job ID')
@@ -439,22 +518,35 @@ def main(argv=None):
     if args.mode == 'revision' and not args.revision:
         raise ArtifactError('--mode revision requires --revision')
     mode = args.mode or cfg.get('selection', {}).get('mode', 'latest-successful')
+    if mode != 'latest-wait' and (args.wait_timeout is not None or args.poll_interval is not None):
+        raise ArtifactError('--wait-timeout and --poll-interval require --mode latest-wait')
+    if mode == 'latest-wait' and args.command == 'list':
+        raise ArtifactError('--mode latest-wait is supported for inventory and download only')
+    if mode == 'latest-wait':
+        timeout = DEFAULT_WAIT_TIMEOUT if args.wait_timeout is None else args.wait_timeout
+        interval = DEFAULT_POLL_INTERVAL if args.poll_interval is None else args.poll_interval
+        if not (0 <= timeout <= 86400 and 0 < interval <= 3600):
+            raise ArtifactError('Expected --wait-timeout 0..86400 and --poll-interval >0..3600 seconds')
     revision = args.revision
     branch = args.branch or cfg.get('branch', 'ci/regression-integration')
     objects = {provider: (GitHub(cfg['github']) if provider == 'github' else GitLab(cfg['gitlab']))
                for provider in providers}
-    if args.run_id is not None:
-        only = providers[0]
-        candidates = {only: [objects[only].run(args.run_id)]}
-        if mode == 'latest-successful' and candidates[only][0]['status'] != 'success':
-            # Explicit IDs identify the requested run, including failed pilots.
-            mode = 'latest'
+    if mode == 'latest-wait':
+        sha, chosen = wait_for_runs(providers, objects, branch, revision, args.run_id,
+                                    timeout, interval)
     else:
-        candidates = {provider: obj.runs(branch) for provider, obj in objects.items()}
-    if args.command == 'list':
-        print(json.dumps(candidates, indent=2))
-        return 0
-    sha, chosen = select(providers, candidates, mode, revision)
+        if args.run_id is not None:
+            only = providers[0]
+            candidates = {only: [objects[only].run(args.run_id)]}
+            if mode == 'latest-successful' and candidates[only][0]['status'] != 'success':
+                # Explicit IDs identify the requested run, including failed pilots.
+                mode = 'latest'
+        else:
+            candidates = {provider: obj.runs(branch) for provider, obj in objects.items()}
+        if args.command == 'list':
+            print(json.dumps(candidates, indent=2))
+            return 0
+        sha, chosen = select(providers, candidates, mode, revision)
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ArtifactError('Unexpected revision from API')
     if args.command == 'inventory':

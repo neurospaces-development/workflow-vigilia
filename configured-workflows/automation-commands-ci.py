@@ -11,7 +11,7 @@ def _ci_artifacts_schedule(subcommand, argv):
     arguments = list(argv or [])
     if subcommand == 'download' and arguments and not arguments[0].startswith('--'):
         selection = arguments.pop(0)
-        if selection in ('latest', 'latest-successful'):
+        if selection in ('latest', 'latest-successful', 'latest-wait'):
             arguments = ['--mode', selection] + arguments
         elif selection in ('smoke', 'regression', 'docker'):
             arguments = ['--profile', selection] + arguments
@@ -20,7 +20,7 @@ def _ci_artifacts_schedule(subcommand, argv):
         elif len(selection) >= 7 and len(selection) <= 40 and all(c in '0123456789abcdef' for c in selection):
             arguments = ['--mode', 'revision', '--revision', selection] + arguments
         else:
-            raise ValueError('First argument must be latest, latest-successful, or a Git revision')
+            raise ValueError('First argument must be latest, latest-successful, latest-wait, a profile, all, or a Git revision')
 
     # Determine the source root when the command is executed, not while the
     # workflow configuration is loaded. This works from any subdirectory of
@@ -61,7 +61,10 @@ def _ci_artifacts_completor(operation, argv, analysis):
             {'completions': {
                 'latest': 'Most recent completed run (including failures)',
                 'latest-successful': 'Most recent common successful revision',
-                '--mode': 'Select the run mode',
+                'latest-wait': 'Wait for current HEAD to finish on all selected providers',
+                '--mode': 'Select the run mode (including latest-wait)',
+                '--wait-timeout': 'Maximum CI wait time in seconds',
+                '--poll-interval': 'Polling interval in seconds',
                 '--revision': 'Select a specific Git revision',
                 '--provider': 'Select one or more providers',
                 '--profile': 'Select smoke, regression or Docker pilot archives',
@@ -102,16 +105,18 @@ def ci_artifacts_list_help(command, argv):
 
 def ci_artifacts_inventory_help(command, argv):
     return (f'{command}: Discover available artifact IDs and GitLab job IDs.\n'
-            '  Options: --provider github|gitlab, --mode latest|latest-successful,\n'
+            '  Options: --provider github|gitlab, --mode latest|latest-successful|latest-wait,\n'
             '  --run-id ID (one provider), --revision SHA. Does not download archives.\n')
 
 
 def ci_artifacts_download_help(command, argv):
     return (f'{command}: Download selected GitHub and GitLab job artifacts.\n'
-            '  First argument: latest, latest-successful, Git SHA, smoke, regression, docker, or all.\n'
+            '  First argument: latest, latest-successful, latest-wait, Git SHA, smoke, regression, docker, or all.\n'
             '  Selection: --profile smoke|regression|docker, --name GLOB, --all, or --id ID.\n'
             '  Targeting: --provider github|gitlab, --run-id ID, --revision SHA,\n'
-            '  --mode latest|latest-successful|revision, --output DIR.\n'
+            '  --mode latest|latest-successful|latest-wait|revision, --output DIR.\n'
+            '  latest-wait targets the local HEAD (or --revision FULL_SHA); waits for all providers.\n'
+            '  --wait-timeout SECONDS (default 1800), --poll-interval SECONDS (default 15).\n'
             '  --id requires exactly one provider and an explicit --run-id.\n'
             '  Failed Docker pilots: use --mode latest or --run-id; default selects successful runs.\n'
             '  Credentials: GITHUB_TOKEN/GH_TOKEN and GITLAB_TOKEN environment variables.\n')

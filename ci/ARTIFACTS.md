@@ -11,6 +11,7 @@ Commands:
 python3 ci/download-artifacts.py list
 python3 ci/download-artifacts.py download
 python3 ci/download-artifacts.py download --mode latest
+python3 ci/download-artifacts.py download --mode latest-wait --profile docker
 python3 ci/download-artifacts.py download --mode revision --revision a12a68e575522285dea96bb61a7edff8d315c60d
 python3 ci/download-artifacts.py download --provider github --profile smoke
 python3 ci/download-artifacts.py verify
@@ -19,9 +20,26 @@ python3 ci/download-artifacts.py report
 
 `latest-successful` (default) selects the newest *common* completed successful
 revision available on both providers. `latest` considers failed executions too,
-provided their artifacts exist. In either mode the revision must match across
-providers. `--revision` identifies a particular revision; use a full SHA if
-possible. `list` prints recent completed runs without downloading anything.
+provided their artifacts exist. Both select an already completed revision;
+they may return an **older** revision if the latest pipelines are still running.
+
+`latest-wait` instead **pins the target revision** to the current source
+checkout's `git HEAD` (or to an explicit full 40-character `--revision`), then
+polls GitHub and GitLab until the pipelines for that exact revision finish.
+It handles pipelines that have not yet started, does not fall back to older
+successful runs, and accepts terminal failures so their diagnostic artifacts
+can be downloaded. It checks the whole pipeline/workflow, not just the Docker
+job. **Push the target revision to the selected CI providers first.** When
+using `--run-id`, select exactly one provider; that run's SHA is the target.
+Waiting is synchronous and can be interrupted with Ctrl-C; it does not create
+a background task. The default timeout is 1800 seconds (30 minutes), with a
+15-second polling interval. Override with `--wait-timeout SECONDS` and
+`--poll-interval SECONDS` (both only for `latest-wait`). A timeout returns an
+error **without downloading archives**. If a completed run has no matching
+artifact, selection still fails normally with a diagnostic.
+
+`--revision` in other modes identifies a particular revision; use a full SHA
+if possible. `list` prints recent completed runs without downloading anything.
 The API listing is limited to the three most recent pages of 100 runs/pipelines
 per provider; use `--revision` for older data if it falls within that window.
 
@@ -59,8 +77,8 @@ loopback regression tests.
 
 When both providers are requested, the downloader refuses mismatched revisions
 and missing profiles. Artifact availability depends on retention and token
-permissions. No automatic retries are performed for missing or expired
-artifacts; investigate the relevant CI run instead.
+permissions. The `latest-wait` mode retries pipeline status checks, but does not retry missing
+or expired artifact archives after pipeline completion; investigate the run instead.
 
 The output directory is ignored by Git and Docker. Do not treat artifacts from
 untrusted builds as executable programs. `report` lists manifest metadata;
@@ -76,6 +94,10 @@ workflow command):
 automation-workflow ci artifacts_list
 automation-workflow ci artifacts_download latest-successful
 automation-workflow ci artifacts_download a12a68e57552
+# Wait for this checkout's revision to finish on both CI providers:
+automation-workflow ci artifacts_download docker -- --mode latest-wait
+# Same, using the positional alias:
+automation-workflow ci artifacts_download latest-wait -- --profile docker
 automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
 ```
@@ -130,9 +152,19 @@ artifact/job names, status, availability and sizes. It does not download files.
 automation-workflow ci artifacts_inventory -- --provider github --mode latest
 automation-workflow ci artifacts_inventory -- --provider gitlab --mode latest
 
-# Download both Docker pilot artifacts at the latest common revision,
-# whether the jobs passed or failed.
+# Download both Docker pilot artifacts at the latest completed common revision,
+# whether the jobs passed or failed. This may be an older revision.
 automation-workflow ci artifacts_download docker -- --mode latest
+
+# Wait for the current HEAD on both providers (including failed pipelines),
+# then retrieve the Docker evidence; never silently choose an older revision.
+automation-workflow ci artifacts_download docker -- --mode latest-wait
+
+# Set the wait timeout (seconds) and poll interval (seconds).
+automation-workflow ci artifacts_download docker -- --mode latest-wait --wait-timeout 3600 --poll-interval 20
+
+# Explicit revision (full SHA): usable even from another checkout's HEAD.
+automation-workflow ci artifacts_download docker -- --mode latest-wait --revision "$(git rev-parse HEAD)"
 
 # Select one provider and one profile.
 automation-workflow ci artifacts_download docker -- --provider github --mode latest

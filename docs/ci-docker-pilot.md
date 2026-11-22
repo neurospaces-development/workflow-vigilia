@@ -77,13 +77,30 @@ automation-workflow ci artifacts_inventory -- --provider github --mode latest
 automation-workflow ci artifacts_inventory -- --provider gitlab --mode latest
 ```
 
-Download both Docker pilot artifacts for the latest common revision:
+Download both Docker pilot artifacts for the latest **completed** common
+revision (which can be older than the one you just pushed):
 
 ```sh
 automation-workflow ci artifacts_download docker -- --mode latest
 automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
 ```
+
+Alternatively, after pushing both remotes, **wait for the current local Git
+HEAD** to complete on both providers before downloading anything:
+
+```sh
+automation-workflow ci artifacts_download docker -- --mode latest-wait
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```
+
+`latest-wait` includes failed pipelines, does not silently fall back to older
+revisions, and has a 30-minute default timeout. You can append
+`--wait-timeout 3600 --poll-interval 20` after the `--` separator. To pin an
+explicit revision use `--revision "$(git rev-parse HEAD)"` (40 characters).
+The command blocks locally until all selected pipelines are terminal or it
+times out; it cannot repair a missing artifact or a failed Docker job.
 
 If only one platform completed the pilot, select its provider, pipeline/run
 ID and (if desired) the specific job/artifact ID using `--run-id` and `--id`.
