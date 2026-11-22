@@ -1,22 +1,80 @@
-# Hosted Docker-harness CI pilots
+# Hosted Docker module suite
 
-The two pilot jobs deliberately select **only** the existing Perl module
-`20_vigilia/30_docker.t` using the same `VIGILIA_REGEX_SELECTOR` interface
-and `ci/test.sh` used by the other hosted jobs. Vigilia matches this regex
-against the **full discovered pathname**, not the relative module name.
-Therefore the selector must not be anchored to the start of the relative
-path. These pilots are not the `full` profile; both run only on
-`ci/regression-integration`, not untrusted merge requests. The normal
-`smoke` and `regression` jobs remain unchanged.
+Both CI providers execute **the same ordered list of Docker-backed Vigilia
+modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
+The default list begins with the cross-platform verified
+`20_vigilia/30_docker.t` and adds
+`20_vigilia/12_error_checking/summary.yml` as the first expansion candidate.
+The second module has not yet been validated on hosted runners.
+
+`ci/docker-suite.sh` executes modules **serially** and without a tag filter,
+using the existing `ci/test.sh` quality gate for every module. The first
+invocation builds and installs the checkout; later invocations use
+`ci/test.sh --test-only`. Each module is selected using an exact pathname
+suffix, so similarly named modules cannot accidentally be executed.
+If a module fails, the suite records the failure, continues with the next
+module and eventually returns a nonzero exit status. This is intentional:
+CI artifacts must show independent results for all attempted modules.
+
+Change the committed list to expand coverage, one pathname per line relative
+to `vigilia/specifications/`. Blank lines and comments are ignored; entries
+must name actual `.t`, `.module.yml` or `summary.yml` files. For a local
+experiment, set `VIGILIA_DOCKER_MODULES_FILE` to a different list. Do not run
+these specifications on a shared Docker daemon: they reuse names such as
+`vigilia_test_container` and can execute privileged operations in containers.
+
+The suite is **not** the unfiltered `full` profile. Both jobs remain restricted
+to the trusted `ci/regression-integration` branch, not untrusted merge requests.
+The standard `smoke` and `regression` jobs are unchanged.
+
+## Evidence layout and local execution
+
+Each invocation creates a new directory beneath `ci-results/docker-suite/`:
+
+```text
+ci-results/docker-suite/run.XXXXXX/
+  docker-preflight.log
+  summary.tsv
+  01-20_vigilia_30_docker.t/
+    module.txt
+    selector.txt
+    console.log
+    docker-*.log
+    run.XXXXXX/report/report.yml
+    run.XXXXXX/make-check.log
+    ...
+  02-20_vigilia_12_error_checking_summary.yml/
+    ...
+```
+
+The shared CI gate checks positive executed-test counts, error-free reports
+and successful `make check` separately for **each** selected module. The
+`summary.tsv` file records each module's success or failure and evidence
+folder. Module diagnostics are captured before the next module can replace
+its container. All files appear in the existing `docker` job artifact.
+The old `vigilia-docker-pilot` job/artifact names remain unchanged so
+`automation-workflow ci artifacts_download docker` continues working.
+
+After building and installing the checkout, a local rerun can skip the
+installation phase with:
+
+```sh
+ci/docker-suite.sh --test-only
+```
+
+Without `--test-only`, the suite builds once. Running it locally requires a
+working Docker daemon and isolated environment. The harness's historical
+fixed subnet remains the default locally; the GitLab job sets
+`VIGILIA_DOCKER_NETWORK_SUBNET=auto`.
 
 ## GitHub Actions
 
 The `docker-pilot` job runs on an ephemeral `ubuntu-24.04` VM. Docker is
-preinstalled. The pilot tests Docker client/daemon access before building and
-installing the project, runs `ci/test.sh`, and always uploads the
-`vigilia-docker-pilot-<run>-<attempt>` artifact. Look in `ci-results/run.*/`
-for build, `make check`, and Vigilia logs; `docker-*.log` files describe the
-state of the daemon/container when the job ended.
+preinstalled. It checks Docker client/daemon access, installs project
+dependencies, then invokes `ci/docker-suite.sh` and always uploads the
+`vigilia-docker-pilot-<run>-<attempt>` artifact. Separate per-module
+`run.*/` directories contain native reports, `make check` diagnostics and
+Docker logs.
 
 ## GitLab CI/CD
 
@@ -50,20 +108,21 @@ The GitLab DinD daemon has a different filesystem and network namespace from
 the job container. Basic `docker build`, `docker run` and `docker exec` calls
 can work, but tests using host bind mounts, Docker socket sharing, or direct
 container IP access may need changes. Do not expose the DinD TLS key to tested
-containers or untrusted code. This pilot does not modify Vigilia harness
-semantics or the existing Dockerfiles; any problems in those specifications
-should be diagnosed using the uploaded job logs.
+containers or untrusted code. The module suite does not modify Vigilia
+harness semantics or existing Dockerfiles; diagnose new module failures
+using the per-module logs.
 
 ## Validation and evidence
 
-After applying both patches, push `ci/regression-integration` to both remotes.
-If either pilot fails, download its **Docker pilot job artifact** even if the
-other profiles pass, and inspect the per-stage logs. The REST artifact
-downloader supports the `docker` profile, including artifacts from failed
-pipelines, when invoked with `--mode latest` or a specific run/pipeline ID. The default selection still targets smoke and
-regression results from successful pipelines.
+After applying the patch, push `ci/regression-integration` to both remotes.
+If a module fails, download the **Docker job artifact** even if the other
+profiles pass, and inspect the module-specific logs and `summary.tsv`. The
+REST artifact downloader supports the `docker` profile, including artifacts
+from failed pipelines, when invoked with `--mode latest` or a specific
+run/pipeline ID. The default selection still targets smoke and regression
+results from successful pipelines.
 
-The pilot jobs intentionally fail when the Docker test fails. Do not infer
+The Docker jobs intentionally fail when any selected module fails. Do not infer
 successful Docker coverage from a green `smoke` or `regression` job. The
 subsequent full-profile work should use the same unfiltered selection as
 running `bin/vigilia` locally, but additional remote/privileged dependencies
@@ -87,7 +146,7 @@ automation-workflow ci artifacts_inventory -- --provider github --mode latest
 automation-workflow ci artifacts_inventory -- --provider gitlab --mode latest
 ```
 
-Download both Docker pilot artifacts for the latest **completed** common
+Download both Docker suite artifacts for the latest **completed** common
 revision (which can be older than the one you just pushed):
 
 ```sh

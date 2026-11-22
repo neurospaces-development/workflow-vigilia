@@ -94,7 +94,7 @@ vigilia-regression:
     paths:
       - ci-results/
 
-# Separate Docker-in-Docker pilot; smoke/regression remain unchanged. Restrict
+# Serial Docker-in-Docker module suite; smoke/regression remain unchanged. Restrict
 # the privileged DinD service to the trusted integration branch, not MRs.
 # GitLab.com's saas-linux-small-amd64 hosted runner supports privileged DinD.
 vigilia-docker-pilot:
@@ -119,7 +119,6 @@ vigilia-docker-pilot:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
-    VIGILIA_REGEX_SELECTOR: '20_vigilia/30_docker[.]t$'
     # The fixed 172.18/16 subnet conflicts with a network in the DinD daemon.
     VIGILIA_DOCKER_NETWORK_SUBNET: 'auto'
   script:
@@ -203,8 +202,8 @@ vigilia-docker-pilot:
         DOCKER_CERT_PATH="$cert_dir" docker version \
         >> "$CI_RESULTS_DIR/docker-preflight.log" 2>&1
 
-      # Reuse the exact installation and Vigilia selection path of the pilot
-      # on GitHub; only daemon access and job bootstrap differ.
+      # Reuse the same serial Docker module list and Vigilia CI entry point
+      # as GitHub; only daemon access and job bootstrap differ.
       sudo -H -u vigilia-ci ./ci/install-dependencies.sh \
         > "$CI_RESULTS_DIR/deps.log" 2>&1 || {
           rc=$?
@@ -213,15 +212,15 @@ vigilia-docker-pilot:
         }
       sudo -H -u vigilia-ci env \
         CI_RESULTS_DIR="$CI_RESULTS_DIR" \
-        VIGILIA_REGEX_SELECTOR="$VIGILIA_REGEX_SELECTOR" \
         VIGILIA_DOCKER_NETWORK_SUBNET="$VIGILIA_DOCKER_NETWORK_SUBNET" \
         DOCKER_HOST="$DOCKER_HOST" \
         DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
         DOCKER_CERT_PATH="$cert_dir" \
-        ./ci/test.sh
+        ./ci/docker-suite.sh
   artifacts:
     when: always
     expire_in: 30 days
+    # Keep the existing job/artifact name for REST downloader compatibility.
     name: 'vigilia-docker-pilot-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
     paths:
       - ci-results/

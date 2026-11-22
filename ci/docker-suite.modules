@@ -1,0 +1,5 @@
+# Docker-backed modules run one at a time, in this order.
+# Paths are relative to vigilia/specifications/; no regex patterns or tags.
+# Start with the cross-platform verified pilot and expand with error checking.
+20_vigilia/30_docker.t
+20_vigilia/12_error_checking/summary.yml

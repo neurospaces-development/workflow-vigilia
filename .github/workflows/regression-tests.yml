@@ -87,17 +87,16 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # First isolated Docker-harness pilot. Do not broaden the regular test matrix:
+  # Serial Docker module suite. Do not broaden the regular test matrix:
   # the full unfiltered suite still needs remote and privileged dependencies.
   # Run only on the trusted integration branch (never on pull requests).
   docker-pilot:
-    name: Vigilia Docker harness pilot (Ubuntu 24.04)
+    name: Vigilia Docker module suite (Ubuntu 24.04)
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/ci/regression-integration'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CI_RESULTS_DIR: ${{ github.workspace }}/ci-results
-      VIGILIA_REGEX_SELECTOR: '20_vigilia/30_docker[.]t$'
 
     steps:
       - name: Check out source
@@ -130,9 +129,9 @@ jobs:
             exit "$rc"
           }
 
-      - name: Build, install and execute Docker-harness pilot
+      - name: Build, install and execute Docker modules serially
         shell: bash
-        run: ./ci/test.sh
+        run: ./ci/docker-suite.sh
 
       - name: Preserve Docker diagnostics
         if: always()
@@ -144,7 +143,8 @@ jobs:
           docker image ls > "$CI_RESULTS_DIR/docker-images.log" 2>&1 || true
           docker logs vigilia_test_container > "$CI_RESULTS_DIR/docker-container.log" 2>&1 || true
 
-      - name: Upload Docker pilot evidence
+      # Keep the existing artifact name for compatibility with the REST downloader.
+      - name: Upload Docker suite evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

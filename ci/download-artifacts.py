@@ -160,11 +160,17 @@ def validate_zip(path, expected_sha=None, allow_missing_environment=False):
                                and '/negative-probe/' not in '/' + i.filename and i.file_size < 32768]
                 if not environment and allow_missing_environment:
                     return False  # Early job failures may only have bootstrap logs.
-                if len(environment) != 1:
-                    raise ArtifactError(f'Expected one primary environment.txt in {path}')
-                first = archive.read(environment[0]).split(b'\n', 1)[0].decode('ascii', 'replace')
-                if first != expected_sha:
-                    raise ArtifactError(f'Embedded revision mismatch in {path}: {first}')
+                # A serial Docker suite produces one independent report and
+                # environment.txt per module. Verify *every* embedded revision,
+                # not just the first one, to preserve provenance of the bundle.
+                if not environment:
+                    raise ArtifactError(f'Expected at least one environment.txt in {path}')
+                for entry in environment:
+                    first = archive.read(entry).split(b'\n', 1)[0].decode('ascii', 'replace')
+                    if first != expected_sha:
+                        raise ArtifactError(
+                            f'Embedded revision mismatch in {path} '
+                            f'({entry.filename}): {first}')
     except (zipfile.BadZipFile, OSError) as exc:
         raise ArtifactError(f'Invalid ZIP archive: {path}') from exc
     return bool(expected_sha)

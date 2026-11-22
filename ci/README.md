@@ -115,6 +115,20 @@ settings, a successful test run, and failing build, test, and install steps.
 The `cpan-regression.log` and `.exit-code.txt` files are retained in the
 run evidence. This smoke test also runs with `--test-only`.
 
+## Serial Docker module suite
+
+Both hosted CI providers run `ci/docker-suite.sh` in a disposable Docker-capable
+runner for the modules listed in `ci/docker-suite.modules`. The modules are
+selected by their source paths, **not** by `ci:` tags; the same specifications
+remain part of an unfiltered local `bin/vigilia` execution. The suite invokes
+`ci/test.sh` for each module independently, builds/installs only on the first
+run, collects module-specific reports and Docker diagnostics, and returns a
+failure if **any** module fails. See `docs/ci-docker-pilot.md` for configuration,
+known Docker-in-Docker differences and per-module evidence layout.
+
+These Docker jobs remain restricted to the trusted integration branch. They
+are not a substitute for eventual full-suite verification.
+
 ## Evidence and exit status
 
 Each invocation creates a fresh `ci-results/run.XXXXXX/` directory, or one

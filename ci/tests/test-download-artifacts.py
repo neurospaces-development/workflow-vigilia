@@ -284,6 +284,22 @@ class ArtifactDownloadTests(unittest.TestCase):
         with self.assertRaisesRegex(mod.ArtifactError, 'modified'):
             self.invoke('verify')
 
+    def test_multiple_module_environments_all_verified(self):
+        archive_path = self.folder / 'docker-suite.zip'
+        with zipfile.ZipFile(archive_path, 'w') as z:
+            z.writestr('ci-results/docker-suite/run.fixture/01-a/run.x/environment.txt',
+                       SHA + '\nfirst module\n')
+            z.writestr('ci-results/docker-suite/run.fixture/02-b/run.y/environment.txt',
+                       SHA + '\nsecond module\n')
+        self.assertTrue(mod.validate_zip(archive_path, SHA))
+        with zipfile.ZipFile(archive_path, 'w') as z:
+            z.writestr('ci-results/docker-suite/run.fixture/01-a/run.x/environment.txt',
+                       SHA + '\nfirst module\n')
+            z.writestr('ci-results/docker-suite/run.fixture/02-b/run.y/environment.txt',
+                       OLD_SHA + '\nsecond module\n')
+        with self.assertRaisesRegex(mod.ArtifactError, 'Embedded revision mismatch'):
+            mod.validate_zip(archive_path, SHA)
+
     def test_no_credentials_in_manifest(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.invoke('download')

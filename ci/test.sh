@@ -109,6 +109,9 @@ run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
 # Exercise Docker network allocation and failures without needing a daemon.
 run_step docker-network-regression python3 ci/tests/test-docker-network.py
 
+# Exercise serial Docker module selection and per-module evidence offline.
+run_step docker-suite-regression python3 ci/tests/test-docker-suite.py
+
 if (( build )); then
     run_step sudo-check sudo -n true
     run_step autogen ./autogen.sh
