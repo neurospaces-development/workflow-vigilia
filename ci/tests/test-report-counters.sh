@@ -26,7 +26,7 @@ perl -MYAML::PP -e '
             die "processed counter changed\n" unless
                 $c->{processed_totals}->{$k} == $c->{current}->{$k};
         }
-        my $tests = $mode eq "execution" ? 1 : 12;
+        my $tests = $mode eq "execution" ? 1 : 13;
         die "incorrect selected test count\n" unless
             $c->{selected_totals}->{command_test} == $tests;
         die "incorrect processed test count\n" unless

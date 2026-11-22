@@ -61,6 +61,8 @@ my $option_show_command_tests;
 my $option_show_images;
 my $option_show_modules;
 my $option_tags = [];
+my $option_tag_query;
+my $global_tag_query_ast;
 my $option_timeout_multiplier = 1;
 my $option_timings = 1;
 my $option_trace;
@@ -139,6 +141,7 @@ options:
     --show-images                Show the docker images and containers that are referenced by the test harnesses.
     --show-modules               Show the selected test modules and their descriptions.
     --tags                       Repeatable tag filter (OR); untagged children inherit selection (default: all).
+    --tag-query                  Boolean tag expression: NOT, AND, OR and parentheses (cannot be combined with --tags).
     --timeout-multiplier         Multiply all timeout values with this constant.
     --timings                    Add timing information about the tests to the report.
     --trace                      Enable tracing using the given unix shell command (eg. 'strace -f', 'retsnoop', 'RRLOG=/tmp/rr.log rr record' or syzbot/syzkaller, https://hackerbikepacker.com/syzbot).
@@ -189,6 +192,7 @@ options:
 					    "show-images!" => \$option_show_images,
 					    "show-modules!" => \$option_show_modules,
 					    "tags=s" => $option_tags,
+					    "tag-query=s" => \$option_tag_query,
 					    "timeout-multiplier=s" => \$option_timeout_multiplier,
 					    "timings!" => \$option_timings,
 					    "trace=s" => \$option_trace,
@@ -571,6 +575,14 @@ sub parse_options
 	die "$0: Error in option processing";
     }
 
+    # A Boolean expression is an alternative to the legacy OR-only --tags.
+    die "$0: --tag-query cannot be combined with --tags\n"
+        if defined $option_tag_query && @$option_tags;
+
+    $global_tag_query_ast = defined $option_tag_query
+        ? Heterarch::Test::Element::compile_tag_query($option_tag_query)
+        : undef;
+
     if (not exists $Heterarch::Test::Reporting::console_types->{$option_console_type})
     {
 	die "$0: *** Error --console-type should specify one of " . (join ", ", sort keys %$Heterarch::Test::Reporting::console_types) . ".";
@@ -679,6 +691,7 @@ sub parse_options
 	   show_images => $option_show_images,
 	   show_modules => $option_show_modules,
 	   tags => $option_tags,
+           tag_query => $option_tag_query,
 	   timeout_multiplier => $option_timeout_multiplier,
 	   timings => $option_timings,
 	   trace => $option_trace,
@@ -2130,7 +2143,7 @@ sub harness_command_run_tests
             # assertions are all excluded. For unfiltered runs it can still
             # process command definitions without assertions.
             if ($command_eligible
-                && ($command_has_selected_test || !@$option_tags))
+                && ($command_has_selected_test || (!@$option_tags && !defined $option_tag_query)))
             {
                 $selected_command_total++;
             }
@@ -2174,6 +2187,7 @@ sub harness_command_run_tests
         = {
            regex_selector => $option_regex_selector,
            requested_tags => [ @$option_tags ],
+           tag_query => $option_tag_query,
           };
 
     # set status
@@ -3201,7 +3215,7 @@ sub cd_run
     # Do not start a command (or its preparation) if all of its assertions
     # are excluded by the tag filter. In particular, test-level restrictions
     # must never cause command side effects in a narrower CI profile.
-    if (@$option_tags)
+    if (@$option_tags || defined $option_tag_query)
     {
         my $tests = $command_definition->{command_tests} // [];
 
@@ -5537,7 +5551,7 @@ our $selected_output_levels;
 # Tags are content metadata, shared by execution, inspection and documentation.
 # A module needs an explicit matching tag when a filter is active. Untagged
 # descendants inherit selection; an explicitly tagged descendant narrows it.
-# Multiple requested tags have OR semantics. Duplicates have no effect.
+# --tags uses OR semantics. --tag-query supports Boolean expressions.
 # The only supported specification key is "tags", whose value is a YAML array.
 
 sub _tag_values
@@ -5568,6 +5582,119 @@ sub _tag_values
 }
 
 
+
+# Parse Boolean tag expressions without eval or any arbitrary Perl execution.
+# Precedence: NOT > AND > OR. Tag names are case-sensitive, operators are not.
+# A quoted tag permits spaces and reserved words in tag names.
+sub compile_tag_query
+{
+    my $expression = shift;
+    die "Invalid --tag-query: empty expression\n"
+        unless defined $expression && $expression =~ /\S/;
+
+    my $rest = $expression;
+    my @tokens;
+    while (length $rest)
+    {
+        $rest =~ s/\A\s+//;
+        last unless length $rest;
+        if ($rest =~ s/\A([()])//)
+        {
+            push @tokens, [$1, $1];
+        }
+        elsif ($rest =~ s/\A"((?:\\.|[^"\\])*)"//s
+               || $rest =~ s/\A'((?:\\.|[^'\\])*)'//s)
+        {
+            my $tag = $1;
+            die "Invalid --tag-query: unknown escape in quoted tag\n"
+                if $tag =~ /\\(?![\\"'])/;
+            $tag =~ s/\\([\\"'])/$1/g;
+            die "Invalid --tag-query: empty tag name\n" unless length $tag;
+            push @tokens, ['tag', $tag];
+        }
+        elsif ($rest =~ s/\A([A-Za-z0-9_.:\/\@+\-]+)//)
+        {
+            my $word = $1;
+            my $upper = uc $word;
+            push @tokens, ($upper =~ /\A(?:AND|OR|NOT)\z/)
+                ? [$upper, $word] : ['tag', $word];
+        }
+        else
+        {
+            my $near = substr($rest, 0, 24);
+            die "Invalid --tag-query: unexpected character near '$near'\n";
+        }
+    }
+    push @tokens, ['EOF', 'end of expression'];
+
+    my $pos = 0;
+    my ($parse_or, $parse_and, $parse_not, $parse_primary);
+    $parse_primary = sub {
+        my $token = $tokens[$pos];
+        if ($token->[0] eq 'tag')
+        {
+            $pos++;
+            return ['tag', $token->[1]];
+        }
+        if ($token->[0] eq '(')
+        {
+            $pos++;
+            my $node = $parse_or->();
+            die "Invalid --tag-query: expected ')'\n"
+                unless $tokens[$pos]->[0] eq ')';
+            $pos++;
+            return $node;
+        }
+        die "Invalid --tag-query: expected tag or '(' before '$token->[1]'\n";
+    };
+    $parse_not = sub {
+        if ($tokens[$pos]->[0] eq 'NOT')
+        {
+            $pos++;
+            return ['not', $parse_not->()];
+        }
+        return $parse_primary->();
+    };
+    $parse_and = sub {
+        my $node = $parse_not->();
+        while ($tokens[$pos]->[0] eq 'AND')
+        {
+            $pos++;
+            $node = ['and', $node, $parse_not->()];
+        }
+        return $node;
+    };
+    $parse_or = sub {
+        my $node = $parse_and->();
+        while ($tokens[$pos]->[0] eq 'OR')
+        {
+            $pos++;
+            $node = ['or', $node, $parse_and->()];
+        }
+        return $node;
+    };
+
+    my $tree = $parse_or->();
+    die "Invalid --tag-query: unexpected '$tokens[$pos]->[1]'\n"
+        unless $tokens[$pos]->[0] eq 'EOF';
+    return $tree;
+}
+
+
+sub evaluate_tag_query
+{
+    my ($node, $tags) = @_;
+    my $operator = $node->[0];
+    return exists $tags->{$node->[1]} if $operator eq 'tag';
+    return !evaluate_tag_query($node->[1], $tags) if $operator eq 'not';
+    return evaluate_tag_query($node->[1], $tags)
+        && evaluate_tag_query($node->[2], $tags) if $operator eq 'and';
+    return evaluate_tag_query($node->[1], $tags)
+        || evaluate_tag_query($node->[2], $tags) if $operator eq 'or';
+    die "Invalid --tag-query: internal expression node '$operator'\n";
+}
+
+
 sub matches_tags
 {
     my $element = shift;
@@ -5577,6 +5704,15 @@ sub matches_tags
     # Validate the schema even without --tags: obsolete "tag" must not be
     # silently ignored during an unfiltered execution or inspection.
     my $tags = _tag_values($element);
+
+    if (defined $global_tag_query_ast)
+    {
+        # Patch 0022 evaluates explicit tags at each hierarchy level.
+        # Patch 0023 will evaluate inherited effective tags at test leaves.
+        return evaluate_tag_query($global_tag_query_ast,
+                                  { map { $_ => 1 } @$tags })
+            ? 'matched query' : ($parent_selected && !@$tags ? 'inherited' : undef);
+    }
 
     return ':all' unless scalar @$option_tags;
 
@@ -5699,8 +5835,8 @@ sub is_selected_by_tag
 
         $reporter->report_message_info("message_info",
             "Element $element_definition->{description} is not selected by tag ("
-            . (join ", ", @$option_tags)
-            . " are selected tags).\nTotal of "
+            . (defined $option_tag_query ? $option_tag_query : join ", ", @$option_tags)
+            . " is the active tag filter).\nTotal of "
             . "$global_test_report->{global}->{test_counters}->{current}->{command_test}"
             . " test(s) (encountered $error_count error(s) so far)");
     }
