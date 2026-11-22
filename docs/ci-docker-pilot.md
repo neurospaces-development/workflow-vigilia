@@ -39,10 +39,10 @@ should be diagnosed using the uploaded job logs.
 
 After applying both patches, push `ci/regression-integration` to both remotes.
 If either pilot fails, download its **Docker pilot job artifact** even if the
-other profiles pass, and inspect the per-stage logs. The existing REST
-artifact downloader currently targets `smoke` and `regression` artifacts;
-**it does not include these Docker-pilot artifacts**. Download them from the
-individual GitHub/GitLab job pages until the downloader is extended.
+other profiles pass, and inspect the per-stage logs. The REST artifact
+downloader supports the `docker` profile, including artifacts from failed
+pipelines, when invoked with `--mode latest` or a specific run/pipeline ID. The default selection still targets smoke and
+regression results from successful pipelines.
 
 The pilot jobs intentionally fail when the Docker test fails. Do not infer
 successful Docker coverage from a green `smoke` or `regression` job. The
@@ -58,23 +58,34 @@ References:
 ## Retrieve pilot diagnostics through workflow
 
 With the flexible REST artifact downloader installed, query the latest
-completed runs **including failures** and inspect the Docker jobs:
+completed runs **including failures** and inspect the Docker jobs. Pass
+`--` after the workflow operation (and any positional selector) to forward
+options to the downloader; without the separator, `workflow` tries to parse
+`--provider`, `--mode`, and similar options itself:
 
 ```sh
-automation-workflow ci artifacts_inventory --provider github --mode latest
-automation-workflow ci artifacts_inventory --provider gitlab --mode latest
+automation-workflow ci artifacts_inventory -- --provider github --mode latest
+automation-workflow ci artifacts_inventory -- --provider gitlab --mode latest
 ```
 
 Download both Docker pilot artifacts for the latest common revision:
 
 ```sh
-automation-workflow ci artifacts_download docker --mode latest
+automation-workflow ci artifacts_download docker -- --mode latest
 automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
 ```
 
 If only one platform completed the pilot, select its provider, pipeline/run
 ID and (if desired) the specific job/artifact ID using `--run-id` and `--id`.
-The downloader produces a combined ZIP bundle containing the original provider
+For example:
+
+```sh
+automation-workflow ci artifacts_inventory -- --provider github --run-id 45051720283
+automation-workflow ci artifacts_inventory -- --provider gitlab --run-id 3100079440
+```
+
+These are illustrative IDs from the initial pilot; inspect the current
+run/pipeline inventory before selecting an archive. The downloader produces a combined ZIP bundle containing the original provider
 archives and a manifest with revision and checksum evidence. These commands do
 not require changes to the tests or access to the runner's Docker daemon.

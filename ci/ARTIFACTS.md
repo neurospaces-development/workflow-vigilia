@@ -80,6 +80,21 @@ automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
 ```
 
+The `automation-workflow` command-line parser reserves option-looking arguments
+for itself. Separate the workflow target/operation from the downstream command's
+options with `--`:
+
+```text
+automation-workflow ci <operation> [positional-selector] -- [downloader options]
+```
+
+The separator is consumed by `workflow`; it is **not** passed to
+`ci/download-artifacts.py`. It is only needed when forwarding options such as
+`--provider`, `--mode`, `--run-id`, `--name`, or `--id`. Bare operations and
+positional selectors (for example `artifacts_download docker`) work without it.
+When invoking the standalone `python3 ci/download-artifacts.py`, do **not** add
+this separator.
+
 The wrapper schedules the standalone Python command using
 `execute_command_array`. It does not issue HTTP requests during configuration
 loading, and retains dry-run semantics. The current working directory must
@@ -112,29 +127,29 @@ artifact/job names, status, availability and sizes. It does not download files.
 
 ```sh
 # Inspect most recent completed runs, including failed Docker pilots.
-automation-workflow ci artifacts_inventory --provider github --mode latest
-automation-workflow ci artifacts_inventory --provider gitlab --mode latest
+automation-workflow ci artifacts_inventory -- --provider github --mode latest
+automation-workflow ci artifacts_inventory -- --provider gitlab --mode latest
 
 # Download both Docker pilot artifacts at the latest common revision,
 # whether the jobs passed or failed.
-automation-workflow ci artifacts_download docker --mode latest
+automation-workflow ci artifacts_download docker -- --mode latest
 
 # Select one provider and one profile.
-automation-workflow ci artifacts_download docker --provider github --mode latest
+automation-workflow ci artifacts_download docker -- --provider github --mode latest
 
 # Select a specific GitHub run and artifact ID (from inventory).
-automation-workflow ci artifacts_inventory --provider github --run-id 123456789
-automation-workflow ci artifacts_download --provider github --run-id 123456789 --id 987654321
+automation-workflow ci artifacts_inventory -- --provider github --run-id 123456789
+automation-workflow ci artifacts_download -- --provider github --run-id 123456789 --id 987654321
 
 # Select a specific GitLab pipeline and job ID (from inventory).
-automation-workflow ci artifacts_inventory --provider gitlab --run-id 123456789
-automation-workflow ci artifacts_download --provider gitlab --run-id 123456789 --id 987654321
+automation-workflow ci artifacts_inventory -- --provider gitlab --run-id 123456789
+automation-workflow ci artifacts_download -- --provider gitlab --run-id 123456789 --id 987654321
 
 # Name patterns are applied to GitHub artifact names / GitLab job names.
-automation-workflow ci artifacts_download --mode latest --name '*docker-pilot*'
+automation-workflow ci artifacts_download -- --mode latest --name '*docker-pilot*'
 
 # All available ZIP artifacts in the selected completed run(s).
-automation-workflow ci artifacts_download all --mode latest
+automation-workflow ci artifacts_download all -- --mode latest
 
 automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
