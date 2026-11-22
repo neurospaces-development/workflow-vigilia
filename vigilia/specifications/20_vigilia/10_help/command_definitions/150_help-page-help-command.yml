@@ -59,6 +59,7 @@ command_tests:
           --show-images                Show the docker images and containers that are referenced by the test harnesses.
           --show-modules               Show the selected test modules and their descriptions.
           --tags                       Repeatable tag filter (OR); untagged children inherit selection (default: all).
+          --tag-query                  Boolean tag expression: NOT, AND, OR and parentheses (cannot be combined with --tags).
           --timeout-multiplier         Multiply all timeout values with this constant.
           --timings                    Add timing information about the tests to the report.
           --trace                      Enable tracing using the given unix shell command (eg. 'strace -f', 'retsnoop', 'RRLOG=/tmp/rr.log rr record' or syzbot/syzkaller, https://hackerbikepacker.com/syzbot).
