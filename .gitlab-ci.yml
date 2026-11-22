@@ -1,0 +1,92 @@
+# GitLab.com hosted-runner pilot; does not require a dedicated shell runner.
+# Like the GitHub pilot, this selects only the non-Docker vigilia regression.
+# During the pilot, run only on named branches. Untrusted merge-request code
+# must not receive passwordless sudo in a privileged CI job container.
+# GitLab's Ubuntu job container starts as root, while ci/test.sh deliberately
+# refuses to run as root. Bootstrap an unprivileged account within the
+# disposable container and grant passwordless sudo only inside that container.
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
+
+stages:
+  - test
+
+vigilia-regression:
+  stage: test
+  image: ubuntu:24.04
+  timeout: 60 minutes
+  variables:
+    VIGILIA_REGEX_SELECTOR: '20_vigilia/13_inspection_exit_code'
+    DEBIAN_FRONTEND: noninteractive
+  script:
+    - |
+      set -euo pipefail
+      export CI_RESULTS_DIR="$CI_PROJECT_DIR/ci-results"
+      mkdir -p "$CI_RESULTS_DIR"
+
+      # GitLab.com hosted Linux jobs use a disposable VM with a Docker
+      # executor. Bootstrap only this job container; do not share a host.
+      if (( EUID != 0 )); then
+        echo 'Expected a root-owned Ubuntu job container for bootstrap' >&2
+        exit 2
+      fi
+      apt-get update > "$CI_RESULTS_DIR/bootstrap.log" 2>&1
+      apt-get install -y --no-install-recommends sudo ca-certificates \
+        >> "$CI_RESULTS_DIR/bootstrap.log" 2>&1
+      useradd --create-home --shell /bin/bash vigilia-ci
+      printf 'vigilia-ci ALL=(ALL) NOPASSWD:ALL\n' \
+        > /etc/sudoers.d/90-vigilia-ci
+      chmod 0440 /etc/sudoers.d/90-vigilia-ci
+      chown -R vigilia-ci:vigilia-ci "$CI_PROJECT_DIR"
+
+      # Reuse the exact installation and CI gate used in GitHub Actions.
+      # Provisioning output remains available in the always-uploaded artifact.
+      sudo -H -u vigilia-ci ./ci/install-dependencies.sh \
+        > "$CI_RESULTS_DIR/deps.log" 2>&1 || {
+          rc=$?
+          tail -50 "$CI_RESULTS_DIR/deps.log" >&2
+          exit "$rc"
+        }
+      sudo -H -u vigilia-ci env \
+        CI_RESULTS_DIR="$CI_RESULTS_DIR" \
+        VIGILIA_REGEX_SELECTOR="$VIGILIA_REGEX_SELECTOR" \
+        ./ci/test.sh
+
+      # Negative probe: the internal CI gate must reject an empty selection.
+      # The overall GitLab job succeeds only when rejection is confirmed.
+      probe_root="$CI_RESULTS_DIR/negative-probe"
+      if sudo -H -u vigilia-ci env \
+         CI_RESULTS_DIR="$probe_root" \
+         VIGILIA_REGEX_SELECTOR='^__vigilia_ci_no_such_module__$' \
+         ./ci/test.sh --test-only; then
+        echo 'ERROR: Empty selection unexpectedly passed the CI gate' >&2
+        exit 1
+      fi
+      shopt -s nullglob
+      runs=("$probe_root"/run.*)
+      if (( ${#runs[@]} != 1 )); then
+        echo 'ERROR: Expected exactly one negative-probe evidence directory' >&2
+        exit 1
+      fi
+      probe="${runs[0]}"
+      for stage in make-check validate-report; do
+        status_file="$probe/$stage.exit-code.txt"
+        if [[ ! -f "$status_file" ]] || [[ $(<"$status_file") == 0 ]]; then
+          echo "ERROR: $stage did not reject the empty selection" >&2
+          exit 1
+        fi
+      done
+      if [[ -f "$probe/report/report.yml" ]]; then
+        echo 'ERROR: Empty selection unexpectedly produced a native report' >&2
+        exit 1
+      fi
+      echo 'Negative probe passed: empty selection rejected by both quality gates.'
+  artifacts:
+    when: always
+    expire_in: 30 days
+    name: 'vigilia-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
+    paths:
+      - ci-results/
