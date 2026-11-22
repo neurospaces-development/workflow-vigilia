@@ -102,6 +102,10 @@ run_step() {
 # Unit-test the strict CPAN installer without installing any modules.
 run_step cpan-regression bash ci/tests/test-cpan-install-strict.sh
 
+# Exercise GitHub/GitLab REST discovery with a loopback API (no network access).
+run_step artifact-regression python3 ci/tests/test-download-artifacts.py
+run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
+
 if (( build )); then
     run_step sudo-check sudo -n true
     run_step autogen ./autogen.sh

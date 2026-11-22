@@ -82,3 +82,16 @@ The wrapper schedules the standalone Python command using
 `execute_command_array`. It does not issue HTTP requests during configuration
 loading, and retains dry-run semantics. The current working directory must
 be inside the source checkout for `git rev-parse --show-toplevel` to resolve.
+
+## Offline regression tests
+
+The following tests use a loopback HTTP server, mock responses, and disposable
+ZIP fixtures. They never contact GitHub/GitLab and do not require API tokens:
+
+```sh
+python3 ci/tests/test-download-artifacts.py
+python3 ci/tests/test-workflow-artifacts.py
+```
+
+The shared `ci/test.sh` executes them before the build and the `vigilia`
+regression suite, preserving separate stage logs.
