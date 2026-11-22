@@ -2,8 +2,8 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-All eight previously configured modules have passed on both GitHub Actions and
-GitLab CI/CD:
+The first ten modules passed on both GitHub Actions and GitLab CI/CD at
+revision `6c0bb75b0d897a661f7714a55f860197ce86af86`:
 
 - `20_vigilia/30_docker.t` (3 command tests);
 - `20_vigilia/12_error_checking/summary.yml` (5 command tests);
@@ -17,29 +17,44 @@ GitLab CI/CD:
 - `40_workflow-automator/36_specific-features-timestamps/summary.yml`
   (4 tests);
 - `40_workflow-automator/37_specific-features-background/summary.yml`
-  (2 tests).
-
-The next two modules exercise additional Workflow export features using the
-same `Dockerfile.workflow-feature-testing` image:
-
+  (2 tests);
 - `40_workflow-automator/32_specific-features-export-sh/summary.yml`
-  (15 tests): generated shell scripts, role selection, help, dry-run, and
-  verbose options;
+  (15 tests): generated shell scripts, role selection and options;
 - `40_workflow-automator/33_specific-features-export-times/summary.yml`
-  (5 tests): generated command timing information and exported timing files.
+  (5 tests): exported timing information and files.
 
 The timestamp assertions intentionally use a reproducible reference time.
 `Dockerfile.workflow-feature-testing` installs `libfaketime` and sets both
 `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1` and
 `FAKETIME="@2025-10-11 11:38:32"`. The expected October 2025 timestamps in
 `33_specific-features-export-times` are therefore intentional test fixtures,
-not assumptions about the CI runner's current date. This configuration is
-already present in the Docker image used by passing modules.
+not assumptions about the CI runner's current date.
 
-These ten modules specify **46 enabled command tests** in total: 26 verified
-on both providers, plus 20 awaiting hosted validation. Two additional
-assertions are explicitly disabled. No existing test specifications are
-changed. All ten modules execute separately through the shared suite runner.
+The next five modules extend coverage using the **same Dockerfile** already
+used by passing modules:
+
+- `40_workflow-automator/27_schedule/summary.yml` (8 tests): scheduling,
+  interactions and dry-run inspection;
+- `40_workflow-automator/34_specific-features-annotations.t` (2 tests):
+  command annotation handling;
+- `40_workflow-automator/38_rename_project/summary.yml` (5 tests): project
+  renaming and command discovery after the rename;
+- `40_workflow-automator/39_specific_features_ai/summary.yml` (16 tests):
+  local OpenAI token storage, precedence, permission checks, error handling
+  and cleanup. These use synthetic test tokens; no external API calls are
+  made by the specifications;
+- `40_workflow-automator/42_use-dot-local-bin/summary.yml` (4 tests): user
+  installation paths and `~/.local/bin` configuration.
+
+These fifteen modules specify **81 enabled command tests** in total:
+46 verified on both providers, plus 35 awaiting hosted validation.
+Two additional assertions are explicitly disabled. No existing test
+specifications are changed. All modules execute independently through the
+shared suite runner. The added modules use standard Docker harnesses, not
+remote SSH or shared Docker-socket harnesses. Some older module comments
+mention fixed container IP addresses, but their executable test commands do
+not reference those addresses. Hosted execution will establish whether any
+other environment-specific expectations need attention.
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -94,6 +109,16 @@ ci-results/docker-suite/run.XXXXXX/
   09-40_workflow-automator_32_specific-features-export-sh_summary.yml/
     ...
   10-40_workflow-automator_33_specific-features-export-times_summary.yml/
+    ...
+  11-40_workflow-automator_27_schedule_summary.yml/
+    ...
+  12-40_workflow-automator_34_specific-features-annotations.t/
+    ...
+  13-40_workflow-automator_38_rename_project_summary.yml/
+    ...
+  14-40_workflow-automator_39_specific_features_ai_summary.yml/
+    ...
+  15-40_workflow-automator_42_use-dot-local-bin_summary.yml/
     ...
 ```
 
