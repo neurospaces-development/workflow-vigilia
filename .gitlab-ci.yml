@@ -93,3 +93,119 @@ vigilia-regression:
     name: 'vigilia-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
     paths:
       - ci-results/
+
+# Separate Docker-in-Docker pilot; smoke/regression remain unchanged. Restrict
+# the privileged DinD service to the trusted integration branch, not MRs.
+# GitLab.com's saas-linux-small-amd64 hosted runner supports privileged DinD.
+vigilia-docker-pilot:
+  stage: test
+  image: ubuntu:24.04
+  tags:
+    - saas-linux-small-amd64
+  timeout: 90 minutes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
+  services:
+    - name: docker:24.0.5-dind
+      alias: docker
+      variables:
+        HEALTHCHECK_TCP_PORT: "2376"
+  variables:
+    DEBIAN_FRONTEND: noninteractive
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    VIGILIA_REGEX_SELECTOR: '^20_vigilia/30_docker[.]t$'
+  script:
+    - |
+      set -euo pipefail
+      export CI_RESULTS_DIR="$CI_PROJECT_DIR/ci-results"
+      mkdir -p "$CI_RESULTS_DIR"
+
+      # The Docker daemon runs in a privileged, disposable service container.
+      # Preserve diagnostics on failure, including when provisioning fails.
+      capture_docker_diagnostics() {
+        local rc=$?
+        docker ps -a > "$CI_RESULTS_DIR/docker-containers.log" 2>&1 || true
+        docker network ls > "$CI_RESULTS_DIR/docker-networks.log" 2>&1 || true
+        docker image ls > "$CI_RESULTS_DIR/docker-images.log" 2>&1 || true
+        docker logs vigilia_test_container > "$CI_RESULTS_DIR/docker-container.log" 2>&1 || true
+        exit "$rc"
+      }
+      trap capture_docker_diagnostics EXIT
+
+      if (( EUID != 0 )); then
+        echo 'Expected root for disposable job-container bootstrap' >&2
+        exit 2
+      fi
+      apt-get update > "$CI_RESULTS_DIR/bootstrap.log" 2>&1
+      apt-get install -y --no-install-recommends \
+        sudo ca-certificates docker.io \
+        >> "$CI_RESULTS_DIR/bootstrap.log" 2>&1 || {
+          rc=$?
+          tail -n 60 "$CI_RESULTS_DIR/bootstrap.log" >&2
+          exit "$rc"
+        }
+      useradd --create-home --shell /bin/bash vigilia-ci
+      printf 'vigilia-ci ALL=(ALL) NOPASSWD:ALL\n' \
+        > /etc/sudoers.d/90-vigilia-ci
+      chmod 0440 /etc/sudoers.d/90-vigilia-ci
+      chown -R vigilia-ci:vigilia-ci "$CI_PROJECT_DIR"
+
+      # GitLab-hosted TLS DinD shares /certs/client with the job container.
+      # Copy the client certificate/key into a private user-owned directory;
+      # never upload them as artifacts or expose them to tested containers.
+      cert_dir=/home/vigilia-ci/.docker/client
+      install -d -m 0700 -o vigilia-ci -g vigilia-ci "$cert_dir"
+      for cert in ca.pem cert.pem key.pem; do
+        if [[ ! -s /certs/client/$cert ]]; then
+          echo "Missing DinD TLS client certificate: $cert" >&2
+          exit 2
+        fi
+        install -m 0600 -o vigilia-ci -g vigilia-ci \
+          "/certs/client/$cert" "$cert_dir/$cert"
+      done
+
+      # The service may still be starting after the certificates appear.
+      docker_ok=0
+      for attempt in {1..30}; do
+        if sudo -H -u vigilia-ci env \
+           DOCKER_HOST="$DOCKER_HOST" DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
+           DOCKER_CERT_PATH="$cert_dir" docker info \
+           > "$CI_RESULTS_DIR/docker-preflight.log" 2>&1; then
+          docker_ok=1
+          break
+        fi
+        sleep 2
+      done
+      if (( docker_ok == 0 )); then
+        cat "$CI_RESULTS_DIR/docker-preflight.log" >&2
+        exit 2
+      fi
+      sudo -H -u vigilia-ci env \
+        DOCKER_HOST="$DOCKER_HOST" DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
+        DOCKER_CERT_PATH="$cert_dir" docker version \
+        >> "$CI_RESULTS_DIR/docker-preflight.log" 2>&1
+
+      # Reuse the exact installation and Vigilia selection path of the pilot
+      # on GitHub; only daemon access and job bootstrap differ.
+      sudo -H -u vigilia-ci ./ci/install-dependencies.sh \
+        > "$CI_RESULTS_DIR/deps.log" 2>&1 || {
+          rc=$?
+          tail -n 60 "$CI_RESULTS_DIR/deps.log" >&2
+          exit "$rc"
+        }
+      sudo -H -u vigilia-ci env \
+        CI_RESULTS_DIR="$CI_RESULTS_DIR" \
+        VIGILIA_REGEX_SELECTOR="$VIGILIA_REGEX_SELECTOR" \
+        DOCKER_HOST="$DOCKER_HOST" \
+        DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
+        DOCKER_CERT_PATH="$cert_dir" \
+        ./ci/test.sh
+  artifacts:
+    when: always
+    expire_in: 30 days
+    name: 'vigilia-docker-pilot-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
+    paths:
+      - ci-results/
