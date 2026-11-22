@@ -116,6 +116,9 @@ if (( build )); then
     run_step install sudo -n env CPAN_INSTALL_STRICT_TESTS=1 make install
 fi
 
+# The native report test runs vigilia itself and needs installed CPAN modules.
+run_step report-counters bash ci/tests/test-report-counters.sh
+
 # These are generated Automake outputs. Clear them only immediately before
 # this run so that early build failures cannot collect stale evidence.
 rm -f -- run_harness.sh.log run_harness.sh.trs test-suite.log

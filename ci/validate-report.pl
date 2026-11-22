@@ -19,6 +19,18 @@ ref($current) eq 'HASH' or die "Missing current test counters\n";
 my $status = $global->{status};
 my $tests = $current->{command_test};
 my $errors = $global->{error_count};
+my $executed = $counters->{executed_totals};
+if (defined $executed) {
+    ref($executed) eq 'HASH' or die "Invalid executed_totals counter
+";
+    my $executed_tests = $executed->{command_test};
+    defined($executed_tests) && !ref($executed_tests) && $executed_tests =~ /\A[0-9]+\z/
+        or die "Missing or invalid executed_totals.command_test
+";
+    $executed_tests == $tests
+        or die "Processed versus executed test counters disagree in runtime report
+";
+}
 
 defined($status) && !ref($status) && $status eq 'Finished'
     or die "Report does not describe a finished test run\n";

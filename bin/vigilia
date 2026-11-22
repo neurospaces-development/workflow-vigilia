@@ -2077,47 +2077,104 @@ sub harness_command_run_tests
 	$model_library_shas = ModelLibrary::shas($global_config->{external_model_libraries});
     }
 
-    # set expected totals for the test counters
+    # Discover every loaded definition (after the module filename/regex filter).
+    # The legacy expected_totals field historically counted these elements,
+    # regardless of --tags, disabled flags, or runtime skip conditions.
+    # Preserve that meaning for existing consumers and publish it explicitly as
+    # discovered_totals. Selected totals describe statically eligible elements;
+    # current continues to count elements actually processed by the engine.
 
     my $expected_module_total = 0;
-
     my $expected_command_total = 0;
-
     my $expected_test_total = 0;
+
+    my $selected_module_total = 0;
+    my $selected_command_total = 0;
+    my $selected_test_total = 0;
 
     $reporter->report_progress("progress_bar", 0);
 
     foreach my $module_definition (@$module_definitions)
     {
-	#t should use ->md_run()
+        $expected_module_total++;
 
-	my $command_definitions = $module_definition->{command_definitions};
+        my $module_eligible
+            = (!$module_definition->{disabled} && !$module_definition->{error}
+               && Heterarch::Test::Element::matches_tags($module_definition, 0));
 
-	foreach my $command_definition (@$command_definitions)
-	{
-	    #t should use ->cd_run()
+        for my $command_definition (@{$module_definition->{command_definitions} // []})
+        {
+            $expected_command_total++;
 
-	    my $command_tests = $command_definition->{command_tests};
+            my $command_eligible
+                = ($module_eligible
+                   && !$command_definition->{disabled} && !$command_definition->{error}
+                   && Heterarch::Test::Element::matches_tags($command_definition, 1));
 
-	    foreach my $command_test (@$command_tests)
-	    {
-		#t should use ->ct_run_complete()
+            my $command_has_selected_test = 0;
 
-		$expected_test_total++;
-	    }
+            for my $command_test (@{$command_definition->{command_tests} // []})
+            {
+                $expected_test_total++;
 
-	    $expected_command_total++;
-	}
+                if ($command_eligible
+                    && !$command_test->{disabled} && !$command_test->{error}
+                    && Heterarch::Test::Element::matches_tags($command_test, 1))
+                {
+                    $selected_test_total++;
+                    $command_has_selected_test = 1;
+                }
+            }
 
-	$expected_module_total++;
+            # With a tag filter, cd_run() does not start commands whose
+            # assertions are all excluded. For unfiltered runs it can still
+            # process command definitions without assertions.
+            if ($command_eligible
+                && ($command_has_selected_test || !@$option_tags))
+            {
+                $selected_command_total++;
+            }
+        }
+
+        # A selected module can run with no commands. Counting it is useful
+        # for distinguishing selection from test execution.
+        $selected_module_total++ if $module_eligible;
     }
 
-    $global_test_report->{global}->{test_counters}->{expected_totals}
-	= {
-	   module_definition => $expected_module_total,
-	   command_definition => $expected_command_total,
-	   command_test => $expected_test_total,
-	  };
+    my $counters = $global_test_report->{global}->{test_counters};
+
+    $counters->{discovered_totals}
+        = {
+           module_definition => $expected_module_total,
+           command_definition => $expected_command_total,
+           command_test => $expected_test_total,
+          };
+
+    # Backward compatibility: same meaning and values as before this change.
+    $counters->{expected_totals} = { %{$counters->{discovered_totals}} };
+
+    $counters->{selected_totals}
+        = {
+           module_definition => $selected_module_total,
+           command_definition => $selected_command_total,
+           command_test => $selected_test_total,
+          };
+
+    $global_test_report->{global}->{counter_semantics}
+        = {
+           discovered_totals => 'Loaded definitions after regex selection, before tags and disabled/error flags',
+           expected_totals => 'Legacy alias of discovered_totals (not a count of selected tests)',
+           selected_totals => 'Statically eligible definitions after tag and disabled/error filters; runtime skips may reduce actual counts',
+           current => 'Legacy live counter of processed definitions; does not imply command execution',
+           processed_totals => 'Final snapshot of current (including inspection traversals)',
+           executed_totals => 'Actual runtime executor processing; always zero for nonexecuting inspection/documentation',
+          };
+
+    $global_test_report->{global}->{selection}
+        = {
+           regex_selector => $option_regex_selector,
+           requested_tags => [ @$option_tags ],
+          };
 
     # set status
 
@@ -2162,6 +2219,22 @@ sub harness_command_run_tests
     # close pending commands
 
     Heterarch::Test::CommandDefinition::Interactive::close_pending();
+
+    # Inspection formatters walk test definitions but do not execute their
+    # commands. Keep the historical "current" processing counters, while
+    # explicitly recording actual runtime execution separately.
+    my $test_counters = $global_test_report->{global}->{test_counters};
+
+    $test_counters->{processed_totals} = { %{$test_counters->{current}} };
+
+    $test_counters->{executed_totals}
+        = ($global_test_report->{output_format} eq 'executor'
+           ? { %{$test_counters->{current}} }
+           : {
+              module_definition => 0,
+              command_definition => 0,
+              command_test => 0,
+             });
 
     # close the test report
 

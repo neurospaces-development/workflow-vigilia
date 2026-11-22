@@ -54,7 +54,10 @@ class RestClient:
         if params:
             url += '?' + urllib.parse.urlencode(params)
         headers = {'User-Agent': 'workflow-vigilia-artifact-downloader/1',
-                   'Accept': 'application/json' if not download else 'application/zip'}
+                   'Accept': 'application/vnd.github+json' if self.provider == 'github' and not download
+                   else ('application/json' if not download else 'application/zip')}
+        if self.provider == 'github':
+            headers['X-GitHub-Api-Version'] = '2022-11-28'
         if self.token:
             if self.provider == 'github':
                 headers['Authorization'] = 'Bearer ' + self.token
@@ -128,7 +131,7 @@ class RestClient:
                 os.unlink(temporary)
 
 
-def validate_zip(path, expected_sha=None):
+def validate_zip(path, expected_sha=None, allow_missing_environment=False):
     try:
         with zipfile.ZipFile(path) as archive:
             infos = archive.infolist()
@@ -139,6 +142,8 @@ def validate_zip(path, expected_sha=None):
             if expected_sha:
                 environment = [i for i in infos if i.filename.endswith('/environment.txt')
                                and '/negative-probe/' not in '/' + i.filename and i.file_size < 32768]
+                if not environment and allow_missing_environment:
+                    return False  # Early job failures may only have bootstrap logs.
                 if len(environment) != 1:
                     raise ArtifactError(f'Expected one primary environment.txt in {path}')
                 first = archive.read(environment[0]).split(b'\n', 1)[0].decode('ascii', 'replace')
@@ -146,6 +151,7 @@ def validate_zip(path, expected_sha=None):
                     raise ArtifactError(f'Embedded revision mismatch in {path}: {first}')
     except (zipfile.BadZipFile, OSError) as exc:
         raise ArtifactError(f'Invalid ZIP archive: {path}') from exc
+    return bool(expected_sha)
 
 
 def sha256(path):
@@ -185,7 +191,7 @@ class GitHub:
                  'attempt': int(r.get('run_attempt', 1)), 'created_at': r.get('created_at', '')}
                 for r in data if r.get('status') == 'completed']
 
-    def artifacts(self, run, profiles):
+    def artifacts(self, run, profiles, require_success=False):
         items = self.http.pages(self.base + f"/actions/runs/{run['id']}/artifacts", key='artifacts')
         found = {}
         for profile in profiles:
@@ -215,14 +221,14 @@ class GitLab:
                  'attempt': 1, 'created_at': r.get('created_at', '')}
                 for r in data if r.get('status') in ('success', 'failed')]
 
-    def artifacts(self, run, profiles):
+    def artifacts(self, run, profiles, require_success=False):
         jobs = self.http.pages(self.base + f"/pipelines/{run['id']}/jobs",
                                {'include_retried': 'false'})
         found = {}
         for profile in profiles:
             name = f'{self.job_prefix}: [{profile}]'
             choices = [j for j in jobs if j.get('name') == name and
-                       j.get('status') in ('success', 'failed') and
+                       j.get('status') in (('success',) if require_success else ('success', 'failed')) and
                        isinstance(j.get('artifacts_file'), dict) and
                        j['artifacts_file'].get('size', 0) > 0]
             if len(choices) != 1:
@@ -285,7 +291,9 @@ def artifact_verify(manifest_path):
             raise ArtifactError('Unsafe path in artifact manifest')
         if not path.is_file() or sha256(path) != entry['sha256']:
             raise ArtifactError(f'Missing or modified artifact: {path}')
-        validate_zip(path, sha)
+        verified = validate_zip(path, sha, allow_missing_environment=not entry.get('embedded_revision_verified', True))
+        if verified != entry.get('embedded_revision_verified', True):
+            raise ArtifactError(f'Embedded revision verification changed: {path}')
     return manifest
 
 
@@ -351,7 +359,7 @@ def main(argv=None):
     sha, chosen = select(providers, candidates, mode, revision)
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ArtifactError('Unexpected revision from API')
-    discovered = {provider: objects[provider].artifacts(chosen[provider], profiles)
+    discovered = {provider: objects[provider].artifacts(chosen[provider], profiles, mode == 'latest-successful')
                   for provider in providers}
 
     target = directory / sha
@@ -362,17 +370,21 @@ def main(argv=None):
             artifact = discovered[provider][profile]
             relative = f'{provider}/{profile}/artifact-{artifact["id"]}.zip'
             destination = target / relative
+            allow_missing = run['status'] != 'success'
             if destination.exists():
-                validate_zip(destination, sha)
+                verified = validate_zip(destination, sha, allow_missing)
                 print(f'Reusing {destination}')
             else:
                 objects[provider].download(artifact, destination)
-                validate_zip(destination, sha)
+                verified = validate_zip(destination, sha, allow_missing)
                 print(f'Downloaded {destination}')
+            if not verified:
+                print(f'Warning: early failed job has no environment.txt; revision verified only by provider API: {destination}', file=sys.stderr)
             entries.append({'provider': provider, 'profile': profile, 'run_id': run['id'],
                             'run_status': run['status'], 'run_attempt': run['attempt'],
                             'artifact_id': artifact['id'], 'artifact_name': artifact['name'],
-                            'file': relative, 'sha256': sha256(destination), 'size': destination.stat().st_size})
+                            'file': relative, 'sha256': sha256(destination), 'size': destination.stat().st_size,
+                            'embedded_revision_verified': verified})
     manifest = {'schema_version': 1, 'revision': sha, 'branch': branch, 'selection': mode,
                 'generated_at': datetime.now(timezone.utc).isoformat(), 'artifacts': entries}
     atomic_json(target / 'manifest.json', manifest)

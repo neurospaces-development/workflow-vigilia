@@ -27,8 +27,10 @@ per provider; use `--revision` for older data if it falls within that window.
 
 Successful downloads appear in `ci-artifacts/<full-SHA>/<provider>/<profile>/`,
 with an atomic `manifest.json`, `latest.json` pointer, checksums and a combined
-`workflow-vigilia-ci-<SHA>.zip`. Both ZIP validity and the embedded revision
-in the primary `environment.txt` are checked. Already downloaded artifact IDs
+`workflow-vigilia-ci-<SHA>.zip`. ZIP validity and the embedded revision in the primary `environment.txt` are
+checked. Early failed jobs may contain no `environment.txt`; in that case the
+revision is checked only against provider API metadata and the manifest records
+`embedded_revision_verified: false`. Already downloaded artifact IDs
 are reused. The archives are *not extracted* or executed. `verify` checks
 previous downloads without contacting either provider.
 

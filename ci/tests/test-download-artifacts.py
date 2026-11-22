@@ -48,6 +48,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_error(400)
             identity = int(path.rsplit('/', 1)[1])
             body = archive(OLD_SHA if state['bad_sha'] else SHA, identity >= 200)
+            if state['no_environment']:
+                stream = io.BytesIO()
+                with zipfile.ZipFile(stream, 'w') as z:
+                    z.writestr('bootstrap.log', 'Simulated provisioning failure\n')
+                body = stream.getvalue()
             if state['bad_zip']:
                 body = b'not-a-zip'
             self.send_response(200)
@@ -60,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_error(401)
             if path.endswith('/runs'):
                 data = {'workflow_runs': [
-                    {'id': 111, 'head_sha': SHA, 'conclusion': 'success',
+                    {'id': 111, 'head_sha': SHA, 'conclusion': 'failed' if state['failed_run'] else 'success',
                      'status': 'completed', 'run_attempt': 1, 'created_at': '2026-11-22T10:00:00Z'},
                 ]}
             elif path.endswith('/artifacts'):
@@ -82,13 +87,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_error(401)
             if path.endswith('/pipelines'):
                 data = [{'id': 222, 'sha': OLD_SHA if state['different_revision'] else SHA,
-                         'status': 'success', 'created_at': '2026-11-22T10:00:00Z'}]
+                         'status': 'failed' if state['failed_run'] else 'success',
+                         'created_at': '2026-11-22T10:00:00Z'}]
             elif path.endswith('/jobs'):
                 data = [
                     {'id': 201, 'name': 'vigilia-regression: [smoke]',
                      'status': 'success', 'artifacts_file': {'size': 300}},
                     {'id': 202, 'name': 'vigilia-regression: [regression]',
-                     'status': 'success', 'artifacts_file': {'size': 300}},
+                     'status': 'failed' if state['failed_job'] else 'success', 'artifacts_file': {'size': 300}},
                 ]
                 if state['missing_job']:
                     data.pop()
@@ -130,7 +136,7 @@ class ArtifactDownloadTests(unittest.TestCase):
         self.server.state.clear()
         self.server.state.update(storage_headers=[], bad_sha=False, bad_zip=False,
                                  expire_regression=False, different_revision=False,
-                                 missing_job=False)
+                                 missing_job=False, failed_job=False, failed_run=False, no_environment=False)
         port = self.server.server_port
         settings = {'ci_artifacts': {
             'branch': 'ci/regression-integration',
@@ -172,6 +178,17 @@ class ArtifactDownloadTests(unittest.TestCase):
         self.assertEqual(len(self.server.state['storage_headers']), 4)
         self.assertTrue(all(a is None and b is None for a, b in self.server.state['storage_headers']))
 
+    def test_early_failure_artifacts_without_environment(self):
+        self.server.state['failed_run'] = True
+        self.server.state['failed_job'] = True
+        self.server.state['no_environment'] = True
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.invoke('download', '--mode', 'latest'), 0)
+            self.assertEqual(self.invoke('verify'), 0)
+        manifest = json.loads((self.output / SHA / 'manifest.json').read_text())
+        self.assertTrue(all(e['embedded_revision_verified'] is False
+                            for e in manifest['artifacts']))
+
     def test_mismatched_revision_rejected(self):
         self.server.state['different_revision'] = True
         with self.assertRaisesRegex(mod.ArtifactError, 'No common revision'):
@@ -179,6 +196,11 @@ class ArtifactDownloadTests(unittest.TestCase):
 
     def test_missing_profile_rejected(self):
         self.server.state['missing_job'] = True
+        with self.assertRaisesRegex(mod.ArtifactError, 'missing or ambiguous'):
+            self.invoke('download')
+
+    def test_successful_pipeline_with_failed_profile_is_rejected(self):
+        self.server.state['failed_job'] = True
         with self.assertRaisesRegex(mod.ArtifactError, 'missing or ambiguous'):
             self.invoke('download')
 
