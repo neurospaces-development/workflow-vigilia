@@ -2,15 +2,26 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The initial two modules, `20_vigilia/30_docker.t` and
-`20_vigilia/12_error_checking/summary.yml`, have passed on both GitHub Actions
-and GitLab CI/CD. The third module,
-`40_workflow-automator/15_error-pages/summary.yml`, extends the suite to the
-`workflow` command-line error messages. It defines five enabled command tests
-and one explicitly disabled test (which requires a separate installation of
-`feature-testing-workflow`). The third module **has not yet been validated on
-hosted runners**; its Docker image build and exact error-message assertions
-may expose further issues.
+The first three modules have passed on both GitHub Actions and GitLab CI/CD:
+
+- `20_vigilia/30_docker.t` (3 command tests);
+- `20_vigilia/12_error_checking/summary.yml` (5 command tests);
+- `40_workflow-automator/15_error-pages/summary.yml` (5 enabled command
+  tests; one additional test is explicitly disabled).
+
+The next two candidates extend Workflow-specific coverage:
+
+- `40_workflow-automator/29_config-loader-errors/summary.yml` (2 tests):
+  distinguish malformed configuration files from missing files;
+- `40_workflow-automator/31_specific-features-export-variables/summary.yml`
+  (3 tests): install a feature-testing configuration, export command
+  variables, and inspect the generated file.
+
+Together these five modules have **18 enabled command tests**. The additional
+five tests have not yet been validated on hosted runners; their image builds,
+configuration installation and expected outputs may expose failures. The
+first three modules remain unchanged.
+
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -51,6 +62,10 @@ ci-results/docker-suite/run.XXXXXX/
   02-20_vigilia_12_error_checking_summary.yml/
     ...
   03-40_workflow-automator_15_error-pages_summary.yml/
+    ...
+  04-40_workflow-automator_29_config-loader-errors_summary.yml/
+    ...
+  05-40_workflow-automator_31_specific-features-export-variables_summary.yml/
     ...
 ```
 
