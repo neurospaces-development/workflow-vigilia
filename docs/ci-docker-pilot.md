@@ -2,26 +2,32 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The first three modules have passed on both GitHub Actions and GitLab CI/CD:
+All five previously configured modules have passed on both GitHub Actions and
+GitLab CI/CD:
 
 - `20_vigilia/30_docker.t` (3 command tests);
 - `20_vigilia/12_error_checking/summary.yml` (5 command tests);
 - `40_workflow-automator/15_error-pages/summary.yml` (5 enabled command
-  tests; one additional test is explicitly disabled).
-
-The next two candidates extend Workflow-specific coverage:
-
-- `40_workflow-automator/29_config-loader-errors/summary.yml` (2 tests):
-  distinguish malformed configuration files from missing files;
+  tests; one additional assertion is disabled);
+- `40_workflow-automator/29_config-loader-errors/summary.yml` (2 tests);
 - `40_workflow-automator/31_specific-features-export-variables/summary.yml`
-  (3 tests): install a feature-testing configuration, export command
-  variables, and inspect the generated file.
+  (3 tests).
 
-Together these five modules have **18 enabled command tests**. The additional
-five tests have not yet been validated on hosted runners; their image builds,
-configuration installation and expected outputs may expose failures. The
-first three modules remain unchanged.
+The next three candidates extend Workflow feature coverage using the same
+`Dockerfile.workflow-feature-testing` image:
 
+- `40_workflow-automator/28_command_array_concatenation/summary.yml`
+  (2 enabled command tests; the tmux-concatenation assertion remains disabled):
+  checks per-role command-array scheduling;
+- `40_workflow-automator/36_specific-features-timestamps/summary.yml`
+  (4 tests): checks generated command timestamp files;
+- `40_workflow-automator/37_specific-features-background/summary.yml`
+  (2 tests): checks background-command scheduling and suppressed output.
+
+These eight modules specify **26 enabled command tests** in total: 18 verified
+on both providers, plus 8 awaiting hosted validation. Two assertions are
+explicitly disabled. The existing five modules and their specifications are
+unchanged. All eight modules execute in independent Docker containers.
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -66,6 +72,12 @@ ci-results/docker-suite/run.XXXXXX/
   04-40_workflow-automator_29_config-loader-errors_summary.yml/
     ...
   05-40_workflow-automator_31_specific-features-export-variables_summary.yml/
+    ...
+  06-40_workflow-automator_28_command_array_concatenation_summary.yml/
+    ...
+  07-40_workflow-automator_36_specific-features-timestamps_summary.yml/
+    ...
+  08-40_workflow-automator_37_specific-features-background_summary.yml/
     ...
 ```
 
