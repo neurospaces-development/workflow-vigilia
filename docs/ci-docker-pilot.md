@@ -21,11 +21,17 @@ state of the daemon/container when the job ended.
 ## GitLab CI/CD
 
 The `vigilia-docker-pilot` job runs on a GitLab.com **privileged, ephemeral**
-`saas-linux-small-amd64` runner. It uses `docker:24.0.5-dind` with TLS on
+`saas-linux-small-amd64` runner. It uses `docker:29.1.3-dind` with TLS on
 `tcp://docker:2376` and a root-owned Ubuntu 24.04 job container. The job
-installs the Docker CLI and creates an unprivileged account for the test
-harness. The client TLS credentials are copied to that account's private home
-directory, **outside the collected artifacts**. The DinD TLS service must
+installs Ubuntu's `docker.io` CLI and checks that it is version 29.1.3,
+matching the pinned daemon release. If Ubuntu upgrades the CLI, the pilot
+fails with an explicit version-mismatch diagnostic instead of silently using
+an incompatible Docker API. Update the client and daemon together in that
+case.
+
+The job creates an unprivileged account for the test harness. The client TLS
+credentials are copied to that account's private home directory, **outside
+the collected artifacts**. The DinD TLS service must
 supply `/certs/client/{ca,cert,key}.pem` on the runner; missing files or
 unreachable daemons are reported as explicit bootstrap failures. Artifacts
 are named `vigilia-docker-pilot-<job>-<sha>` and retained on failure.

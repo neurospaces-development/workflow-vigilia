@@ -105,8 +105,11 @@ vigilia-docker-pilot:
   timeout: 90 minutes
   rules:
     - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
+  # Ubuntu 24.04 currently installs docker.io client 29.1.3. Keep the
+  # dedicated TLS DinD daemon on the same release; Docker 24.0.5 supports
+  # only API <= 1.43, while Docker 29.1.3 requires API >= 1.44.
   services:
-    - name: docker:24.0.5-dind
+    - name: docker:29.1.3-dind
       alias: docker
       variables:
         HEALTHCHECK_TCP_PORT: "2376"
@@ -152,6 +155,16 @@ vigilia-docker-pilot:
         > /etc/sudoers.d/90-vigilia-ci
       chmod 0440 /etc/sudoers.d/90-vigilia-ci
       chown -R vigilia-ci:vigilia-ci "$CI_PROJECT_DIR"
+
+      # Detect a future Ubuntu docker.io upgrade before polling an
+      # incompatible daemon. Keep the client and pinned DinD release aligned.
+      docker_client_version=$(docker --version)
+      printf '%s\n' "$docker_client_version" > "$CI_RESULTS_DIR/docker-client-version.log"
+      if [[ ! $docker_client_version =~ (^|[[:space:]])29[.]1[.]3, ]]; then
+        printf 'Expected Docker CLI 29.1.3 for docker:29.1.3-dind; got: %s\n' \
+          "$docker_client_version" >&2
+        exit 2
+      fi
 
       # GitLab-hosted TLS DinD shares /certs/client with the job container.
       # Copy the client certificate/key into a private user-owned directory;
