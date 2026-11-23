@@ -2,59 +2,53 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The first ten modules passed on both GitHub Actions and GitLab CI/CD at
-revision `6c0bb75b0d897a661f7714a55f860197ce86af86`:
+The first fifteen modules passed on both GitHub Actions and GitLab CI/CD at
+revision `e19803f6fc4a1457bcc936281bdbc3cdd776419d`:
 
-- `20_vigilia/30_docker.t` (3 command tests);
-- `20_vigilia/12_error_checking/summary.yml` (5 command tests);
-- `40_workflow-automator/15_error-pages/summary.yml` (5 enabled command
-  tests; one additional assertion is disabled);
-- `40_workflow-automator/29_config-loader-errors/summary.yml` (2 tests);
-- `40_workflow-automator/31_specific-features-export-variables/summary.yml`
-  (3 tests);
+- `20_vigilia/30_docker.t` (3 assertions);
+- `20_vigilia/12_error_checking/summary.yml` (5);
+- `40_workflow-automator/15_error-pages/summary.yml` (5 enabled, 1 disabled);
+- `40_workflow-automator/29_config-loader-errors/summary.yml` (2);
+- `40_workflow-automator/31_specific-features-export-variables/summary.yml` (3);
 - `40_workflow-automator/28_command_array_concatenation/summary.yml`
-  (2 enabled command tests; one additional assertion is disabled);
-- `40_workflow-automator/36_specific-features-timestamps/summary.yml`
-  (4 tests);
-- `40_workflow-automator/37_specific-features-background/summary.yml`
-  (2 tests);
-- `40_workflow-automator/32_specific-features-export-sh/summary.yml`
-  (15 tests): generated shell scripts, role selection and options;
-- `40_workflow-automator/33_specific-features-export-times/summary.yml`
-  (5 tests): exported timing information and files.
+  (2 enabled, 1 disabled);
+- `40_workflow-automator/36_specific-features-timestamps/summary.yml` (4);
+- `40_workflow-automator/37_specific-features-background/summary.yml` (2);
+- `40_workflow-automator/32_specific-features-export-sh/summary.yml` (15);
+- `40_workflow-automator/33_specific-features-export-times/summary.yml` (5);
+- `40_workflow-automator/27_schedule/summary.yml` (8);
+- `40_workflow-automator/34_specific-features-annotations.t` (2);
+- `40_workflow-automator/38_rename_project/summary.yml` (5);
+- `40_workflow-automator/39_specific_features_ai/summary.yml` (16);
+- `40_workflow-automator/42_use-dot-local-bin/summary.yml` (4).
 
-The timestamp assertions intentionally use a reproducible reference time.
-`Dockerfile.workflow-feature-testing` installs `libfaketime` and sets both
+The timestamp assertions use a reproducible reference time:
+`Dockerfile.workflow-feature-testing` installs `libfaketime` and sets
 `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1` and
-`FAKETIME="@2025-10-11 11:38:32"`. The expected October 2025 timestamps in
-`33_specific-features-export-times` are therefore intentional test fixtures,
-not assumptions about the CI runner's current date.
+`FAKETIME="@2025-10-11 11:38:32"`. The AI-token tests exercise local storage
+using synthetic tokens; they do not call the external OpenAI API.
 
-The next five modules extend coverage using the **same Dockerfile** already
-used by passing modules:
+Three **new, independently selected modules** are proposed for hosted execution:
 
-- `40_workflow-automator/27_schedule/summary.yml` (8 tests): scheduling,
-  interactions and dry-run inspection;
-- `40_workflow-automator/34_specific-features-annotations.t` (2 tests):
-  command annotation handling;
-- `40_workflow-automator/38_rename_project/summary.yml` (5 tests): project
-  renaming and command discovery after the rename;
-- `40_workflow-automator/39_specific_features_ai/summary.yml` (16 tests):
-  local OpenAI token storage, precedence, permission checks, error handling
-  and cleanup. These use synthetic test tokens; no external API calls are
-  made by the specifications;
-- `40_workflow-automator/42_use-dot-local-bin/summary.yml` (4 tests): user
-  installation paths and `~/.local/bin` configuration.
+- `40_workflow-automator/46_builtin/summary.yml` (16 assertions): builtin
+  commands, configuration changes and source inspection, using the existing
+  `Dockerfile.features-workflow-installed-testing` fixture;
+- `40_workflow-automator/80_install-testing/10_debian/summary.yml` (2):
+  installation and command discovery using the Debian Bookworm image;
+- `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` (2):
+  installation and command discovery using the Ubuntu 24.04 image.
 
-These fifteen modules specify **81 enabled command tests** in total:
-46 verified on both providers, plus 35 awaiting hosted validation.
-Two additional assertions are explicitly disabled. No existing test
-specifications are changed. All modules execute independently through the
-shared suite runner. The added modules use standard Docker harnesses, not
-remote SSH or shared Docker-socket harnesses. Some older module comments
-mention fixed container IP addresses, but their executable test commands do
-not reference those addresses. Hosted execution will establish whether any
-other environment-specific expectations need attention.
+The suite thus selects **18 modules with 101 enabled command tests**:
+81 assertions already verified on both providers and 20 requiring hosted
+validation. Two other assertions are explicitly disabled. The new modules
+use ordinary Docker harnesses, with no declared `Docker::Remote` or shared
+Docker-daemon-socket mode. Their new images and exact-output assertions still
+require CI validation; static inspection does not establish runtime success.
+No existing test specifications are modified.
+
+See [Test specification execution prerequisites](test-specification-prerequisites.md)
+for the full module inventory, infrastructure requirements, and modules not
+suitable for this low-risk expansion.
 
 `ci/docker-suite.sh` executes modules **serially** and without a tag filter,
 using the existing `ci/test.sh` quality gate for every module. The first
@@ -119,6 +113,12 @@ ci-results/docker-suite/run.XXXXXX/
   14-40_workflow-automator_39_specific_features_ai_summary.yml/
     ...
   15-40_workflow-automator_42_use-dot-local-bin_summary.yml/
+    ...
+  16-40_workflow-automator_46_builtin_summary.yml/
+    ...
+  17-40_workflow-automator_80_install-testing_10_debian_summary.yml/
+    ...
+  18-40_workflow-automator_80_install-testing_20_ubuntu_summary.yml/
     ...
 ```
 

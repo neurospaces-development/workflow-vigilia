@@ -1,7 +1,8 @@
 # Docker-backed modules run one at a time, in this order.
 # Paths are relative to vigilia/specifications/; no regex patterns or tags.
-# The first ten modules passed on GitHub Actions and GitLab CI/CD.
-# The final five extend Workflow integration coverage; hosted validation pending.
+# The first fifteen modules passed on GitHub Actions and GitLab CI/CD.
+# The final three extend builtin and distribution installation coverage;
+# hosted validation pending.
 20_vigilia/30_docker.t
 20_vigilia/12_error_checking/summary.yml
 40_workflow-automator/15_error-pages/summary.yml
@@ -17,3 +18,6 @@
 40_workflow-automator/38_rename_project/summary.yml
 40_workflow-automator/39_specific_features_ai/summary.yml
 40_workflow-automator/42_use-dot-local-bin/summary.yml
+40_workflow-automator/46_builtin/summary.yml
+40_workflow-automator/80_install-testing/10_debian/summary.yml
+40_workflow-automator/80_install-testing/20_ubuntu/summary.yml
