@@ -37,10 +37,14 @@ if [ "${VIGILIA_CI:-0}" = 1 ]; then
 
     mkdir -p "$VIGILIA_REPORT_DIR"
 
+    if [ -n "${VIGILIA_EXACT_MODULE:-}" ]; then
+        set -- --module "$VIGILIA_EXACT_MODULE" "$@"
+    else
+        set -- --regex-selector "$VIGILIA_REGEX_SELECTOR" "$@"
+    fi
     exec bin/vigilia \
         --console-type linear \
         --reporting-directory "$VIGILIA_REPORT_DIR" \
-        --regex-selector "$VIGILIA_REGEX_SELECTOR" \
         "$@"
 fi
 

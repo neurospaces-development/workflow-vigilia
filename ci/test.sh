@@ -28,6 +28,10 @@ case "${VIGILIA_TEST_PROFILE:-}" in
         VIGILIA_REGEX_SELECTOR=${VIGILIA_REGEX_SELECTOR:-'.*'}
         ;;
     full)
+        if [[ -n ${VIGILIA_EXACT_MODULE:-} ]]; then
+            echo 'Full suite must not be narrowed by VIGILIA_EXACT_MODULE' >&2
+            exit 2
+        fi
         if [[ "${VIGILIA_ALLOW_FULL:-0}" != 1 ]]; then
             echo 'Full suite requires VIGILIA_ALLOW_FULL=1 on an isolated Docker runner' >&2
             exit 2
@@ -35,7 +39,14 @@ case "${VIGILIA_TEST_PROFILE:-}" in
         VIGILIA_REGEX_SELECTOR=${VIGILIA_REGEX_SELECTOR:-'.*'}
         ;;
     '')
-        : "${VIGILIA_REGEX_SELECTOR:?Set VIGILIA_TEST_PROFILE or an explicit regex selector}"
+        if [[ -z ${VIGILIA_EXACT_MODULE:-} ]]; then
+            : "${VIGILIA_REGEX_SELECTOR:?Set VIGILIA_TEST_PROFILE or an explicit regex selector}"
+        elif [[ -n ${VIGILIA_REGEX_SELECTOR:-} ]]; then
+            echo 'Choose either VIGILIA_EXACT_MODULE or VIGILIA_REGEX_SELECTOR' >&2
+            exit 2
+        else
+            VIGILIA_REGEX_SELECTOR='.*'  # retained for CI environment metadata
+        fi
         ;;
     *)
         echo "Unsupported VIGILIA_TEST_PROFILE: $VIGILIA_TEST_PROFILE" >&2
@@ -49,6 +60,7 @@ fi
 
 cd -- "$(dirname -- "$0")/.."
 export LC_ALL=C.UTF-8 TERM=dumb VIGILIA_CI=1 VIGILIA_REGEX_SELECTOR
+export VIGILIA_EXACT_MODULE="${VIGILIA_EXACT_MODULE:-}"
 export VIGILIA_TEST_PROFILE="${VIGILIA_TEST_PROFILE:-}"
 export NEUROSPACES_HARNESS_OPTION_EMAIL=0
 
@@ -127,8 +139,9 @@ if (( build )); then
     run_step install sudo -n env CPAN_INSTALL_STRICT_TESTS=1 make install
 fi
 
-# The native report test runs vigilia itself and needs installed CPAN modules.
+# The native report and exact-module selector tests require installed modules.
 if (( ! focused )); then
+    run_step module-selection-regression bash ci/tests/test-exact-module-selection.sh
     run_step report-counters bash ci/tests/test-report-counters.sh
 fi
 

@@ -53,6 +53,7 @@ my $option_output_title_page = '';
 
 my $option_random_order;
 my $option_regex_selector = ".*";
+my $option_module_paths = [];
 my $option_report_disabled_tests;
 my $option_reporting_directory;
 my $option_select_context_path = '.*';
@@ -133,6 +134,7 @@ options:
     --output-pdf                 Generate PDF output.
     --randomize-order            Randomize the order of the tests before executing them (require List::Util to be installed).
     --regex-selector             Defines a regex to run specific tests.
+    --module                     Select an exact module path relative to vigilia/specifications/ (repeatable).
     --report-disabled-tests      Include information of disabled tests in the test report.
     --reporting-directory        The directory to use to write reports to (default is '.').
     --select-context-path        Select only the matching context paths (default is '$option_select_context_path').
@@ -184,6 +186,7 @@ options:
 					    "output-pdf" => \$option_output_pdf,
 					    "randomize-order=s" => \$option_random_order,
 					    "regex-selector=s" => \$option_regex_selector,
+                                            "module=s" => $option_module_paths,
 					    "report-disabled-tests!" => \$option_report_disabled_tests,
 					    "reporting-directory=s" => \$option_reporting_directory,
 					    "select-context-path=s" => \$option_select_context_path,
@@ -573,6 +576,21 @@ sub parse_options
     if (!$result)
     {
 	die "$0: Error in option processing";
+    }
+
+    # Exact module paths are alternatives to regex selection. Keep the
+    # specification's native order and never interpolate user input in regex.
+    if (@$option_module_paths) {
+        die "$0: --module cannot be combined with --regex-selector\n"
+            if $option_regex_selector ne '.*';
+        my %seen;
+        foreach my $path (@$option_module_paths) {
+            die "$0: Invalid --module path '$path'\n"
+                if $path !~ m{\A[A-Za-z0-9_./-]+\z}
+                || $path =~ m{\A/|(?:\A|/)\.\.?/|/\.\.?(/|\z)}
+                || $path !~ m{(?:\.t|\.module\.yml|/summary\.yml)\z};
+            die "$0: Duplicate --module path '$path'\n" if $seen{$path}++;
+        }
     }
 
     # A Boolean expression is an alternative to the legacy OR-only --tags.
@@ -8881,6 +8899,21 @@ sub tl_construct
 	     },
 	    );
     }
+    if (@$option_module_paths) {
+        # Convert discovered module names to paths relative to the Vigilia
+        # specification root. Missing requested modules must fail, rather
+        # than silently yielding an empty/partial test selection.
+        my %discovered = map {
+            my $relative = $_;
+            $relative =~ s{\A\Q$tests_directory\E/?}{};
+            $relative =~ s{\A\./}{};
+            $relative => 1;
+        } @$module_definitions;
+        for my $path (@$option_module_paths) {
+            die "$0: --module does not exist: $path\n" unless $discovered{$path};
+        }
+    }
+
     $self->{invalid_module_filenames} = \%invalid_module_filenames;
     $self->{module_definition_filenames} = $module_definitions;
 
@@ -8915,10 +8948,17 @@ sub tl_expand
 	#! note that this matches against against the full pathname.
 	#! as a consequence 'specific' matches all the test specifications in the specifications/ directory.
 
-	if ($module_definition_filename !~ /$option_regex_selector/i)
-	{
-	    next;
-	}
+        if (@$option_module_paths) {
+            my $relative = $module_definition_filename;
+            $relative =~ s{\A\Q$self->{tests_directory}\E/?}{};
+            $relative =~ s{\A\./}{};
+            my %requested = map { $_ => 1 } @$option_module_paths;
+            next unless $requested{$relative};
+        }
+        elsif ($module_definition_filename !~ /$option_regex_selector/i)
+        {
+            next;
+        }
 
 	my $module_definition = tl_module_read($reporter, $module_definition_filename);
 

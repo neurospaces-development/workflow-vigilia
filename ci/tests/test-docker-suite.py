@@ -18,11 +18,11 @@ MODULES = ('20_vigilia/30_docker.t',
            '20_vigilia/12_error_checking/summary.yml')
 FAKE_TEST = '''#!/usr/bin/env bash
 set -euo pipefail
-printf '%s|%s|%s|%s\\n' "$VIGILIA_REGEX_SELECTOR" "$*" \
+printf '%s|%s|%s|%s\\n' "$VIGILIA_EXACT_MODULE" "$*" \
     "$CI_RESULTS_DIR" "${VIGILIA_TEST_PROFILE:-<unset>}" >> "$FAKE_TEST_LOG"
 mkdir -p "$CI_RESULTS_DIR/run.fixture/report"
 printf 'tested\\n' > "$CI_RESULTS_DIR/run.fixture/report/report.yml"
-if [[ -n "${FAKE_FAIL_SELECTOR:-}" && "$VIGILIA_REGEX_SELECTOR" == *"$FAKE_FAIL_SELECTOR"* ]]; then
+if [[ -n "${FAKE_FAIL_SELECTOR:-}" && "$VIGILIA_EXACT_MODULE" == *"$FAKE_FAIL_SELECTOR"* ]]; then
     exit 7
 fi
 '''
@@ -83,8 +83,8 @@ class DockerSuiteTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = (self.root / 'test.log').read_text().splitlines()
         self.assertEqual(len(lines), 2)
-        self.assertIn('20_vigilia/30_docker[.]t$|--focused|', lines[0])
-        self.assertIn('20_vigilia/12_error_checking/summary[.]yml$|--focused --test-only|', lines[1])
+        self.assertIn('20_vigilia/30_docker.t|--focused|', lines[0])
+        self.assertIn('20_vigilia/12_error_checking/summary.yml|--focused --test-only|', lines[1])
         self.assertTrue(all(line.endswith('|<unset>') for line in lines))
         summary = (self.suite_run() / 'summary.tsv').read_text()
         self.assertEqual(summary.count('\tPASS\t0\t'), 2)

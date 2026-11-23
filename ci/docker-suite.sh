@@ -135,7 +135,7 @@ for module in "${modules[@]}"; do
 
     rc=0
     env VIGILIA_TEST_PROFILE='' \
-        VIGILIA_REGEX_SELECTOR="$selector" \
+        VIGILIA_EXACT_MODULE="$module" \
         CI_RESULTS_DIR="$module_root" \
         ./ci/test.sh "${args[@]}" \
         > "$module_root/console.log" 2>&1 || rc=$?

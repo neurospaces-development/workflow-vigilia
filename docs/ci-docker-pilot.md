@@ -342,3 +342,15 @@ Docker network and adapter regression checks) that need not run per module.
 It still builds on the first run (unless `--test-only`), executes `make check`,
 validates native reports and preserves nonzero exit status. The routine full
 CI quality gate never uses `--focused`.
+
+### Exact-path selection
+
+Use `bin/vigilia --module 20_vigilia/30_docker.t` for ordinary focused
+execution; repeat `--module` to execute several modules together in the same
+Vigilia invocation and preserve specification ordering. Exact paths are
+relative to `vigilia/specifications/`, validated against discovered modules,
+and cannot be combined with a nondefault `--regex-selector`.
+
+`ci/docker-suite.sh` uses that exact selector through `VIGILIA_EXACT_MODULE`
+while retaining one evidence directory per module. The regex file in each
+per-module directory is retained for backward-compatible diagnostics only.
