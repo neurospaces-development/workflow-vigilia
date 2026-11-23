@@ -3,9 +3,10 @@
 This document classifies the **execution requirements**, rather than the
 publication value, of the `vigilia` product knowledge base. Paths below are
 relative to `vigilia/specifications/`. The inventory reflects the repository
-through the advanced-harness expansion in patch 0044 (36 modules in
+through the addition of the `full` CI jobs in patch 0048 (36 modules in
 all). It is a source-level audit, **not** a claim that every module passes on
-hosted runners.
+hosted runners. The current provider/job architecture is documented in
+[CI/CD architecture and operation](ci-cd-architecture.md).
 
 The authoritative test material is the specification itself. A module used
 to generate a manual or tutorial must also remain part of the unfiltered test
@@ -117,8 +118,9 @@ platforms. GitHub's Docker-role image-build timeout was increased to 900 s
 without changing its expected output.
 
 The new `full` CI jobs execute all **36 discovered modules in one `vigilia`
-run**, in the same configuration as plain local `bin/vigilia`. There is
-no separate curated selection list. In particular, `20_preparation.t` and
+run**, with the same unfiltered module selection as plain local `bin/vigilia`
+when using the same specification configuration. The runtime environment may
+differ. There is no separate curated selection list. In particular, `20_preparation.t` and
 `25_preparation_checker.t` share state and contain no command assertions,
 so independently invoking them through the positive-assertion CI gate is not
 equivalent to testing the full knowledge base. `15_docker_creator.t` creates

@@ -1,5 +1,9 @@
 # Shared CI entry point and reusable test tags
 
+For the deployed provider/job architecture, security boundaries, full-suite
+execution and artifact flow, see
+[CI/CD architecture and operation](../docs/ci-cd-architecture.md).
+
 ## Execution profiles
 
 `vigilia` tags are **generic selection metadata**, not an exclusive CI feature.
@@ -15,9 +19,11 @@ material for documentation conversion.
 
 The full profile is never enabled implicitly. It requires
 `VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1` and a genuinely isolated
-execution environment. **Do not enable it on shared workstations or ordinary
-hosted jobs.** The current suite contains fixed container names and Docker
-cleanup operations.
+execution environment. Dedicated `full` jobs are configured on the trusted
+CI integration branch for both hosted providers; their initial execution is
+**diagnostic until verified by native reports**. Do not run it on shared
+workstations or unrestricted/untrusted CI jobs. The suite contains fixed
+container names and Docker cleanup operations.
 
 After configuring and installing dependencies, run:
 
@@ -150,11 +156,14 @@ zero errors. A failed `make check` retains its original status; a missing or
 invalid report also prevents success. Hard kills or runner loss may prevent
 final evidence collection. CI platform artifact upload is configured separately.
 
-## Other profiles
+## Full-suite safety and execution
 
-Docker-based and full-suite testing is not enabled by default. Some existing
-specifications use fixed container names and global Docker cleanup; execute
-those only on a disposable runner with a dedicated Docker daemon. Do not
-select `.*` on a shared workstation. Full-suite dependencies, clean checkout
-builds, distribution packaging, and Docker context validation remain separate
-validation tasks.
+The unfiltered `full` profile is configured as a **separate, privileged hosted
+job on the trusted integration branch**, not as a default profile or as an
+extension of the smoke/regression matrix. Its selection is automatic, but
+its successful execution must be demonstrated on both providers before
+claiming complete CI coverage. Some specifications use fixed container names,
+shared images and cleanup operations; use an isolated, disposable runner and
+a dedicated Docker daemon, never a shared workstation. See
+[CI/CD architecture](../docs/ci-cd-architecture.md) and
+[execution prerequisites](../docs/test-specification-prerequisites.md).

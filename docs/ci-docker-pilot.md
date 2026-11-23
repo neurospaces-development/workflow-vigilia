@@ -1,5 +1,9 @@
 # Hosted Docker module suite
 
+This is the **serial diagnostic Docker subset**, not the entire CI/CD
+architecture. See [CI/CD architecture and operation](ci-cd-architecture.md)
+for provider triggers, quality gates, `full` execution, artifacts and security.
+
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
 The first eighteen modules passed on GitHub Actions and GitLab CI/CD at
@@ -31,9 +35,10 @@ The timestamp assertions use a reproducible reference time:
 `FAKETIME="@2025-10-11 11:38:32"`. The AI-token tests exercise local storage
 using synthetic tokens; they do not call the external OpenAI API.
 
-The four **advanced harness modules** have now been executed on both CI/CD
-platforms. All four pass on GitLab. Three pass on GitHub; the Docker-role
-module needs a longer timeout for its initial cold image build:
+The four **advanced harness modules** have now been verified on both
+CI/CD platforms. A cold Docker-role image build originally timed out on
+GitHub; increasing the assertion timeout to 900 seconds preserved the
+expected output and allowed it to pass:
 
 - `40_workflow-automator/30_specific-features-cd.t` (9 enabled, 1 disabled):
   includes tmux and SSH from the test container to itself;
@@ -49,18 +54,17 @@ module needs a longer timeout for its initial cold image build:
   SSH execution have now passed on both providers.
 
 The suite lists **22 modules and 149 enabled command tests**. At revision
-`92ec1dad5dc630f8e3bfbecb020804fd7ff3bb03`, **all 22 modules and 149
-enabled assertions passed on GitLab**; **21 modules and 144 assertions passed
-on GitHub**. The GitHub Docker-role image build timed out at 60 seconds
-while Debian package installation was in progress, preventing the remaining
-Docker-role assertions from completing. The build assertion now allows up to
-900 seconds, pending validation on GitHub. Three assertions elsewhere in the
-suite remain explicitly disabled.
+`6d00bee29480b91157a1db6a858e818bec7b4613`, **all 22 modules and
+all 149 enabled assertions passed on both GitHub Actions and GitLab CI/CD**.
+Three assertions elsewhere in the suite remain explicitly disabled.
+This subset is an established baseline, but it is not evidence that the newly
+configured unfiltered `full` jobs already pass.
 
 The `/home/neurospaces/projects/...` checkout is intentionally populated
 **inside** the Docker image; it is not supposed to be present on the CI job
-host. The earlier socket and Docker client incompatibilities are resolved;
-the remaining GitHub problem is image-build duration, not that internal path.
+host. The earlier socket, Docker client and cold-build timeout issues have
+been resolved in the verified 22-module suite. The internal source path was
+not the cause of those failures.
 
 See [Test specification execution prerequisites](test-specification-prerequisites.md)
 for the full module inventory, infrastructure requirements, and modules not
@@ -228,9 +232,9 @@ results from successful pipelines.
 
 The Docker jobs intentionally fail when any selected module fails. Do not infer
 successful Docker coverage from a green `smoke` or `regression` job. The
-subsequent full-profile work should use the same unfiltered selection as
-running `bin/vigilia` locally, but additional remote/privileged dependencies
-will have to be provisioned and validated first.
+separately configured `full` jobs already use the same unfiltered selection
+as local `bin/vigilia`; their remaining legacy prerequisites and hosted
+results must still be validated.
 
 References:
 - GitHub hosted runners: https://docs.github.com/en/actions/reference/runners/github-hosted-runners

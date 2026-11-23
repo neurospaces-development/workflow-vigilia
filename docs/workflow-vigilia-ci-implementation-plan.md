@@ -1,5 +1,11 @@
 # CI/CD integration for workflow and vigilia
 
+> **Historical implementation plan (18 November 2026).** This document
+> preserves the original proposed rollout and is **not** the current CI/CD
+> configuration. See [CI/CD architecture and operation](ci-cd-architecture.md)
+> for the implemented jobs, runner provisioning, full-suite status and
+> operational commands. The executable CI YAML and scripts remain authoritative.
+
 Stepwise implementation and verification plan
 
 Version 0.2  •  18 November 2026  •  Proposed for implementation

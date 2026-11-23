@@ -1,5 +1,8 @@
 # CI verification artifact retrieval
 
+For the full CI/CD component diagram, profiles, provider jobs and evidence
+flow, see [CI/CD architecture and operation](../docs/ci-cd-architecture.md).
+
 `python3 ci/download-artifacts.py` uses the GitHub Actions and GitLab REST APIs
 rather than guessing the latest archive name. It requires Python 3 and PyYAML
 (`sudo apt install python3-yaml` on Ubuntu/Debian). The configuration is in
@@ -193,7 +196,7 @@ Use only one of `--profile` (repeatable), `--name` (repeatable), `--id`
 (repeatable), or `--all`. `--id` requires one `--provider` and `--run-id`;
 `--run-id` refers to a **GitHub Actions workflow run** or a **GitLab
 pipeline**, not to a GitLab job. For an individual GitLab job use `--id`.
-A named profile may be `smoke`, `regression` or `docker`. The names for these
+A named profile may be `smoke`, `regression`, `docker` or `full`. The names for these
 profiles are customizable under `github.artifact_names` and `gitlab.job_names`
 in the YAML configuration. `--all` has a safety limit of 50 archives per run.
 

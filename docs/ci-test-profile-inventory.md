@@ -1,5 +1,12 @@
 # CI profile inventory and documentation tags
 
+> **Historical inventory.** This page records the initial classification and
+> tag decisions; it is not the current module coverage report. For implemented
+> CI jobs and unfiltered `full` semantics see
+> [CI/CD architecture](ci-cd-architecture.md). For the current 36-module
+> prerequisite inventory see
+> [test-specification-prerequisites.md](test-specification-prerequisites.md).
+
 This classification is deliberately conservative. Tags describe the intended
 selection of a test; they **do not** establish that its dependencies or expected
 output have been validated on every CI runner. The CI pipelines must execute
@@ -38,7 +45,8 @@ shared runners.
 
 Untouched modules remain part of an unfiltered `vigilia` invocation, i.e. the
 **full** profile. The CI entry point requires `VIGILIA_ALLOW_FULL=1` before it
-will attempt that profile. No full-suite CI job is enabled by these patches.
+will attempt that profile. Subsequent patches have enabled separate, diagnostic `full` CI jobs on
+GitHub and GitLab; their success must be established from native reports.
 
 ## Reusing tags for manuals and tutorials
 
