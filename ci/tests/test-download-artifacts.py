@@ -12,6 +12,7 @@ import threading
 import unittest
 from unittest.mock import patch
 import urllib.parse
+import urllib.error
 import zipfile
 
 import yaml
@@ -64,6 +65,13 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/gh/'):
             if auth != 'Bearer github-test-token' or private:
                 return self.send_error(401)
+            if state['gh_non_json_responses'] > 0:
+                state['gh_non_json_responses'] -= 1
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'<html>temporary upstream response</html>')
+                return
             if path.endswith('/runs/111') or path.endswith('/runs'):
                 state['gh_run_reads'] += 1
                 pending = state['gh_pending_polls'] > 0
@@ -109,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith('/gl/'):
             if private != 'gitlab-test-token' or auth:
                 return self.send_error(401)
+            if state['gl_unavailable_responses'] > 0:
+                state['gl_unavailable_responses'] -= 1
+                return self.send_error(503)
             if path.endswith('/pipelines/222') or path.endswith('/pipelines'):
                 state['gl_run_reads'] += 1
                 pending = state['gl_pending_polls'] > 0
@@ -186,6 +197,7 @@ class ArtifactDownloadTests(unittest.TestCase):
                                  gh_pending_polls=0, gl_pending_polls=0,
                                  gh_missing_polls=0, gl_missing_polls=0, include_old_run=False,
                                  gh_run_reads=0, gl_run_reads=0,
+                                 gh_non_json_responses=0, gl_unavailable_responses=0,
                                  gh_inventory_reads=0, gl_inventory_reads=0)
         port = self.server.server_port
         settings = {'ci_artifacts': {
@@ -401,6 +413,66 @@ class ArtifactDownloadTests(unittest.TestCase):
                             '--wait-timeout', '0', '--profile', 'docker')
         self.assertEqual(self.server.state['gh_inventory_reads'], 0)
         self.assertFalse((self.output / 'latest.json').exists())
+
+    def test_temporary_non_json_and_503_are_retried(self):
+        """Transient provider responses must not abort a running CI poll."""
+        self.server.state.update(gh_non_json_responses=1,
+                                 gl_unavailable_responses=1)
+        with patch.object(mod.time, 'sleep', return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as warnings:
+            self.assertEqual(self.invoke('download', '--mode', 'latest-wait',
+                                         '--profile', 'full', '--revision', SHA,
+                                         '--wait-timeout', '10'), 0)
+        self.assertIn('Invalid API JSON response', warnings.getvalue())
+        self.assertIn('HTTP 503', warnings.getvalue())
+        self.assertEqual(self.server.state['gh_non_json_responses'], 0)
+        self.assertEqual(self.server.state['gl_unavailable_responses'], 0)
+
+    def test_temporary_dns_failure_is_retried(self):
+        original = mod.RestClient.request
+        calls = []
+
+        def flaky_request(client, path, *args, **kwargs):
+            if client.provider == 'github' and not calls:
+                calls.append(path)
+                raise mod.TransientArtifactError(
+                    'github network error: [Errno -3] Temporary failure in name resolution')
+            return original(client, path, *args, **kwargs)
+
+        with patch.object(mod.RestClient, 'request', new=flaky_request), \
+             patch.object(mod.time, 'sleep', return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as warnings:
+            self.assertEqual(self.invoke('inventory', '--provider', 'github',
+                                         '--mode', 'latest'), 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn('Temporary failure in name resolution', warnings.getvalue())
+
+    def test_transient_exhaustion_and_permanent_error(self):
+        self.server.state['gh_non_json_responses'] = 10
+        with patch.object(mod.time, 'sleep', return_value=None) as sleep, \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(mod.ArtifactError, 'exhausted 4 attempts'):
+                self.invoke('inventory', '--provider', 'github', '--mode', 'latest')
+        self.assertEqual(sleep.call_count, 3)
+        self.assertEqual(self.server.state['gh_non_json_responses'], 6)
+
+        # A real auth failure remains fatal, without repeated requests.
+        client = mod.RestClient(f'http://127.0.0.1:{self.server.server_port}/gh',
+                                'incorrect-token', 'github')
+        with patch.object(mod.time, 'sleep', return_value=None) as sleep:
+            with self.assertRaisesRegex(mod.ArtifactError, 'HTTP 401'):
+                client.json('/runs')
+        sleep.assert_not_called()
+
+    def test_urlerror_is_classified_as_transient(self):
+        client = mod.RestClient(f'http://127.0.0.1:{self.server.server_port}/gh',
+                                'github-test-token', 'github')
+        with patch.object(client.opener, 'open',
+                          side_effect=urllib.error.URLError('DNS unavailable')):
+            with self.assertRaisesRegex(mod.TransientArtifactError, 'DNS unavailable'):
+                client.request('/runs')
 
     def test_latest_wait_argument_validation(self):
         with self.assertRaisesRegex(mod.ArtifactError, 'require --mode latest-wait'):

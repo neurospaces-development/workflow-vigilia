@@ -31,6 +31,8 @@ PROFILES = ('smoke', 'regression', 'docker', 'full')
 MAX_SELECTED_ARTIFACTS = 50
 DEFAULT_WAIT_TIMEOUT = 1800  # seconds
 DEFAULT_POLL_INTERVAL = 15  # seconds
+# Read-only REST metadata requests may fail transiently while polling.
+JSON_RETRY_DELAYS = (1, 2, 4)  # seconds between attempts; four attempts total
 TERMINAL_GITHUB = frozenset(('success', 'failure', 'neutral', 'cancelled',
                              'skipped', 'timed_out', 'action_required', 'stale', 'completed'))
 TERMINAL_GITLAB = frozenset(('success', 'failed', 'canceled', 'skipped'))
@@ -39,6 +41,10 @@ HEX = re.compile(r'^[0-9a-f]{7,40}$')
 
 class ArtifactError(RuntimeError):
     pass
+
+
+class TransientArtifactError(ArtifactError):
+    """Temporary API/network failure for a safely repeatable GET request."""
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -99,20 +105,46 @@ class RestClient:
                     headers.pop('X-GitHub-Api-Version', None)
                     headers['Accept'] = '*/*'
                     continue
+                if exc.code in (429, 500, 502, 503, 504):
+                    raise TransientArtifactError(
+                        f'{self.provider} API returned HTTP {exc.code} for {path}') from exc
                 raise ArtifactError(f'{self.provider} API returned HTTP {exc.code} for {path}') from exc
             except urllib.error.URLError as exc:
-                raise ArtifactError(f'{self.provider} network error: {exc.reason}') from exc
+                raise TransientArtifactError(
+                    f'{self.provider} network error: {exc.reason}') from exc
+            except (TimeoutError, ConnectionError) as exc:
+                raise TransientArtifactError(
+                    f'{self.provider} connection error for {path}: {exc}') from exc
         raise ArtifactError('Too many redirects')
 
     def json(self, path, params=None):
-        with self.request(path, params) as response:
-            raw = response.read(MAX_JSON + 1)
-        if len(raw) > MAX_JSON:
-            raise ArtifactError('API JSON response exceeds limit')
-        try:
-            return json.loads(raw)
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise ArtifactError('Invalid API JSON response') from exc
+        # All metadata requests are GETs. Retry only transient failures, not
+        # authentication errors, invalid configuration or artifact mismatches.
+        for attempt in range(len(JSON_RETRY_DELAYS) + 1):
+            try:
+                with self.request(path, params) as response:
+                    content_type = response.headers.get('Content-Type', 'unknown')
+                    raw = response.read(MAX_JSON + 1)
+                if len(raw) > MAX_JSON:
+                    raise ArtifactError('API JSON response exceeds limit')
+                try:
+                    return json.loads(raw)
+                except (ValueError, UnicodeDecodeError) as exc:
+                    # A proxy/gateway can occasionally return HTML or an
+                    # incomplete HTTP 200 body. Avoid logging response data,
+                    # which could contain private information.
+                    raise TransientArtifactError(
+                        f'Invalid API JSON response from {self.provider} for {path} '
+                        f'(Content-Type: {content_type}, {len(raw)} bytes)') from exc
+            except TransientArtifactError as exc:
+                if attempt == len(JSON_RETRY_DELAYS):
+                    raise ArtifactError(
+                        f'{exc}; exhausted {attempt + 1} attempts') from exc
+                delay = JSON_RETRY_DELAYS[attempt]
+                print(f'Warning: {exc}; retrying in {delay}s '
+                      f'(attempt {attempt + 2}/{len(JSON_RETRY_DELAYS) + 1})',
+                      file=sys.stderr, flush=True)
+                time.sleep(delay)
 
     def pages(self, path, params=None, key=None, limit=3):
         result = []

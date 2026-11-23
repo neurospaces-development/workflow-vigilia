@@ -81,8 +81,16 @@ loopback regression tests.
 
 When both providers are requested, the downloader refuses mismatched revisions
 and missing profiles. Artifact availability depends on retention and token
-permissions. The `latest-wait` mode retries pipeline status checks, but does not retry missing
-or expired artifact archives after pipeline completion; investigate the run instead.
+permissions. Read-only REST metadata requests are retried for temporary DNS/connection
+failures, HTTP 429/5xx responses, and invalid JSON (for example an unexpected
+HTML gateway response). There are at most four attempts with 1-, 2- and
+4-second backoffs. Warnings identify the provider and request path but never
+print an API response body or credentials. Persistent errors still abort the
+operation; failed downloads leave the previous `latest.json` selection intact.
+A later invocation can continue without corrective action once connectivity
+returns. The `latest-wait` mode polls pipeline status until completion, but
+does not retry missing or expired artifact archives after pipeline completion;
+investigate the run instead.
 
 The output directory is ignored by Git and Docker. Do not treat artifacts from
 untrusted builds as executable programs. `report` lists manifest metadata;
