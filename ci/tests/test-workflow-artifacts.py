@@ -105,6 +105,15 @@ class WorkflowAdapterTests(unittest.TestCase):
         self.assertIn('--isolate-modules', comp['positional_arguments'][0]['completions'])
         self.assertIn('--module', self.ns['test_inspect_help']('test inspect', []))
 
+    def test_ci_status_wait_runs_and_help(self):
+        for name, operation in [('runs', 'list'), ('status', 'status'), ('wait', 'wait')]:
+            self.ns['ci_' + name](['--revision', 'a' * 40])
+            self.assertIn(' ' + operation + ' --revision', self.commands.pop()[0])
+            self.ns['_completor_generic_expander'] = lambda obj: obj
+            result = self.ns['ci_' + name + '_completor']('ci ' + name, [], {})
+            self.assertEqual(result['operation_path'], ['ci', name])
+            self.assertIn('ci ' + name, self.ns['ci_' + name + '_help']('ci ' + name, []))
+
     def test_inventory_path_completion(self):
         self.ns['_completor_generic_expander'] = lambda obj: obj
         result = self.ns['ci_artifacts_inventory_completor']('ci artifacts_inventory', [], {})

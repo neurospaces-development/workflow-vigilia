@@ -337,3 +337,14 @@ Repeated module paths execute together and maintain the specification order.
 that uses `ci/docker-suite.sh` for per-module evidence. An unfiltered local
 run must be requested explicitly with `--all`; no workflow wrapper should
 silently choose the full, potentially destructive Docker suite.
+
+### Read-only CI run operations
+
+`automation-workflow ci runs` lists recent pipeline executions.
+`ci status -- --revision SHA` queries the two providers at an exact revision,
+including queued and running states. `ci wait -- --revision SHA
+--wait-timeout 7200` polls until both providers reach a terminal state.
+These operations use `ci/download-artifacts.py`'s existing REST client; they
+do not fetch artifacts or dispatch new builds. Non-successful/missing runs
+produce nonzero exit status. Remote dispatch is a separately permissioned
+capability and is deliberately not enabled by these read-only operations.

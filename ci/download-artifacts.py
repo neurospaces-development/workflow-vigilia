@@ -506,7 +506,7 @@ def combine(directory, manifest, name):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command', choices=('list', 'inventory', 'download', 'verify', 'report'))
+    p.add_argument('command', choices=('list', 'inventory', 'download', 'verify', 'report', 'status', 'wait'))
     p.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     p.add_argument('--provider', action='append', choices=('github', 'gitlab'))
     p.add_argument('--profile', action='append', choices=PROFILES)
@@ -558,7 +558,7 @@ def main(argv=None):
     if args.mode == 'revision' and not args.revision:
         raise ArtifactError('--mode revision requires --revision')
     mode = args.mode or cfg.get('selection', {}).get('mode', 'latest-successful')
-    if mode != 'latest-wait' and (args.wait_timeout is not None or args.poll_interval is not None):
+    if mode != 'latest-wait' and args.command != 'wait' and (args.wait_timeout is not None or args.poll_interval is not None):
         raise ArtifactError('--wait-timeout and --poll-interval require --mode latest-wait')
     if mode == 'latest-wait' and args.command == 'list':
         raise ArtifactError('--mode latest-wait is supported for inventory and download only')
@@ -571,6 +571,35 @@ def main(argv=None):
     branch = args.branch or cfg.get('branch', 'ci/regression-integration')
     objects = {provider: (GitHub(cfg['github']) if provider == 'github' else GitLab(cfg['gitlab']))
                for provider in providers}
+    if args.command in ('status', 'wait'):
+        if selectors:
+            raise ArtifactError('status/wait do not select artifact profiles')
+        if args.command == 'status' and (args.wait_timeout is not None or args.poll_interval is not None):
+            raise ArtifactError('status does not accept wait timing options')
+        if args.command == 'status':
+            sha = revision or local_git_head()
+            if not re.fullmatch(r'[0-9a-f]{40}', sha):
+                raise ArtifactError('status requires a full SHA')
+            runs = {}
+            for provider in providers:
+                if args.run_id is not None:
+                    records = [objects[provider].run(args.run_id, include_incomplete=True)]
+                else:
+                    records = objects[provider].runs(branch, include_incomplete=True)
+                runs[provider] = next((x for x in records if x['sha'] == sha), None)
+        else:
+            if args.mode not in (None, 'latest-wait'):
+                raise ArtifactError('wait accepts only --mode latest-wait')
+            timeout = DEFAULT_WAIT_TIMEOUT if args.wait_timeout is None else args.wait_timeout
+            interval = DEFAULT_POLL_INTERVAL if args.poll_interval is None else args.poll_interval
+            if not (0 <= timeout <= 86400 and 0 < interval <= 3600):
+                raise ArtifactError('Expected --wait-timeout 0..86400 and --poll-interval >0..3600')
+            sha, runs = wait_for_runs(providers, objects, branch, revision,
+                                      args.run_id, timeout, interval)
+        summary = {'revision': sha, 'providers': {provider: (runs[provider] or
+                   {'status': 'not-started'}) for provider in providers}}
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0 if all(x and x['status'] == 'success' for x in runs.values()) else 1
     if mode == 'latest-wait':
         sha, chosen = wait_for_runs(providers, objects, branch, revision, args.run_id,
                                     timeout, interval)

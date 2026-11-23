@@ -263,3 +263,61 @@ def test_run_help(command, argv):
             '  requires explicit --module paths, Docker and installed dependencies.\n'
             '  By default one Vigilia process executes all selected modules together.\n'
             '  Use the -- separator before these options in workflow commands.\n')
+
+
+# Read-only CI run monitoring. Run status does not retrieve artifacts and
+# waiting does not change the remote pipeline state.
+def ci_runs(argv):
+    _ci_artifacts_schedule('list', argv)
+
+
+def ci_status(argv):
+    _ci_artifacts_schedule('status', argv)
+
+
+def ci_wait(argv):
+    _ci_artifacts_schedule('wait', argv)
+
+
+def _ci_run_completor(operation, argv, analysis):
+    return _completor_generic_expander({
+        'analysis': analysis, 'complete_arguments_array': argv,
+        'operation_path': ['ci', operation],
+        'positional_arguments': [{'completions': {
+            '--revision': 'Full Git SHA (defaults to checked-out HEAD)',
+            '--provider': 'github or gitlab (repeatable)',
+            '--branch': 'CI branch (defaults to configured branch)',
+            '--run-id': 'Specific provider run ID',
+            **({'--wait-timeout': 'Maximum seconds to wait',
+                '--poll-interval': 'Seconds between API polls'} if operation == 'wait' else {}),
+        }}],
+    })
+
+
+def ci_runs_completor(command, argv, analysis):
+    return _ci_run_completor('runs', argv, analysis)
+
+
+def ci_status_completor(command, argv, analysis):
+    return _ci_run_completor('status', argv, analysis)
+
+
+def ci_wait_completor(command, argv, analysis):
+    return _ci_run_completor('wait', argv, analysis)
+
+
+def ci_runs_help(command, argv):
+    return f'{command}: List recent provider runs; see ci artifacts_list for options.\n'
+
+
+def ci_status_help(command, argv):
+    return (f'{command}: Query both providers for checked-out HEAD (or --revision SHA).\n'
+            '  --provider github|gitlab, --branch NAME, --run-id ID.\n'
+            '  Exit code 0 only when all selected runs succeeded; does not download artifacts.\n')
+
+
+def ci_wait_help(command, argv):
+    return (f'{command}: Wait for CI runs matching HEAD (or --revision SHA).\n'
+            '  --provider github|gitlab, --branch NAME, --run-id ID,\n'
+            '  --wait-timeout SECONDS, --poll-interval SECONDS.\n'
+            '  Exit nonzero for failed runs and timeouts; no artifacts downloaded.\n')

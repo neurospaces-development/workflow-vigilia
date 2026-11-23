@@ -243,6 +243,31 @@ class ArtifactDownloadTests(unittest.TestCase):
                          ['application/vnd.github+json', 'application/vnd.github+json'])
         self.assertEqual(self.server.state['storage_accepts'], ['*/*'] * 4)
 
+    def test_status_reports_exact_revision_without_downloading(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.invoke('status', '--revision', SHA), 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data['revision'], SHA)
+        self.assertEqual({p: x['status'] for p, x in data['providers'].items()},
+                         {'github': 'success', 'gitlab': 'success'})
+        self.assertEqual(self.server.state['gh_inventory_reads'], 0)
+        self.assertEqual(self.server.state['gl_inventory_reads'], 0)
+
+    def test_wait_runs_is_read_only_and_preserves_failed_status(self):
+        self.server.state['gh_pending_polls'] = 1
+        self.server.state['gl_pending_polls'] = 1
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.invoke('wait', '--revision', SHA,
+                                         '--wait-timeout', '10', '--poll-interval', '0.01'), 0)
+        self.assertEqual(self.server.state['gh_inventory_reads'], 0)
+        self.assertEqual(self.server.state['gl_inventory_reads'], 0)
+        self.server.state['failed_run'] = True
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.invoke('status', '--revision', SHA), 1)
+        self.assertEqual(json.loads(out.getvalue())['providers']['gitlab']['status'], 'failed')
+
     def test_full_profile_download_and_inventory(self):
         """Full profile is opt-in; a failed full job still has downloadable evidence."""
         self.server.state['failed_run'] = True
