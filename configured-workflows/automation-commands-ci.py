@@ -128,3 +128,138 @@ def ci_artifacts_verify_help(command, argv):
 
 def ci_artifacts_report_help(command, argv):
     return f'{command}: Summarize the latest downloaded verification manifest.\n'
+
+
+# Test knowledge-base operations. Vigilia alone owns the selection rules;
+# these thin adapters perform no regex matching and execute no test at load
+# time. The standalone focused suite is reserved for explicit isolation.
+def _test_options(argv, inspect=False):
+    arguments = list(argv or [])
+    isolated = False
+    all_modules = False
+    selected = []
+    result = []
+    i = 0
+    while i < len(arguments):
+        token = arguments[i]
+        if token in ('--module', '--tag-query', '--tags'):
+            if i + 1 >= len(arguments) or not arguments[i + 1]:
+                raise ValueError(token + ' requires an argument')
+            value = arguments[i + 1]
+            result.extend((token, value))
+            if token == '--module':
+                selected.append(value)
+            i += 2
+        elif token == '--isolate-modules' and not inspect:
+            isolated = True
+            i += 1
+        elif token == '--all':
+            all_modules = True
+            i += 1
+        else:
+            raise ValueError('Unexpected test option: ' + token)
+    if isolated and (not selected or len(result) != 2 * len(selected)):
+        raise ValueError('--isolate-modules requires only one or more --module PATH selections')
+    if all_modules and result:
+        raise ValueError('--all cannot be combined with selection options')
+    if not (selected or result or all_modules):
+        raise ValueError('Select --module, --tags, --tag-query, or explicitly --all')
+    return isolated, selected, result
+
+
+def _test_schedule(program, arguments):
+    # Commands are composed for workflow's scheduled execution. Source root
+    # discovery happens at execution, not when loading the configuration.
+    command = 'cd "$(git rev-parse --show-toplevel)" && ' + program
+    if arguments:
+        command += ' ' + ' '.join(shlex.quote(str(arg)) for arg in arguments)
+    execute_command_array([command])
+
+
+def test_modules(argv):
+    if argv:
+        raise ValueError('test modules takes no arguments')
+    _test_schedule('bin/vigilia', ['--show-modules'])
+
+
+def test_inspect(argv):
+    _, _, args = _test_options(argv, inspect=True)
+    _test_schedule('bin/vigilia', ['--show-command-descriptions'] + args)
+
+
+def test_run(argv):
+    isolated, modules, args = _test_options(argv)
+    if isolated:
+        options = [v for m in modules for v in ('--module', m)]
+        _test_schedule('./ci/docker-suite.sh', options)
+    else:
+        _test_schedule('bin/vigilia', args)
+
+
+def _test_module_candidates():
+    # Best-effort local completions; they are not another selection engine.
+    # Vigilia validates each requested path at execution time.
+    from pathlib import Path
+    import subprocess
+    try:
+        root = Path(subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                                   check=True, capture_output=True, text=True).stdout.strip())
+        base = root / 'vigilia/specifications'
+        paths = (p.relative_to(base).as_posix() for p in base.rglob('*') if p.is_file())
+        return {p: 'Vigilia module' for p in paths
+                if p.endswith(('.t', '.module.yml')) or p.endswith('/summary.yml')}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+
+
+def _test_completor(operation, argv, analysis):
+    return _completor_generic_expander({
+        'analysis': analysis,
+        'complete_arguments_array': argv,
+        'operation_path': ['test', operation],
+        'positional_arguments': [
+            {'completions': {
+                '--module': 'Exact specification path; may be repeated',
+                '--tags': 'Select by tag (OR)',
+                '--tag-query': 'Select by Boolean tag expression',
+                '--all': 'Explicitly select the entire knowledge base',
+                **({'--isolate-modules': 'Separate reports per selected module'} if operation == 'run' else {}),
+                **_test_module_candidates(),
+            }},
+        ],
+    })
+
+
+def test_modules_completor(command, argv, analysis):
+    return _completor_generic_expander({
+        'analysis': analysis, 'complete_arguments_array': argv,
+        'operation_path': ['test', 'modules'], 'positional_arguments': [],
+    })
+
+
+def test_inspect_completor(command, argv, analysis):
+    return _test_completor('inspect', argv, analysis)
+
+
+def test_run_completor(command, argv, analysis):
+    return _test_completor('run', argv, analysis)
+
+
+def test_modules_help(command, argv):
+    return (f'{command}: List discovered Vigilia test modules and descriptions.\n'
+            '  No command tests are executed.\n')
+
+
+def test_inspect_help(command, argv):
+    return (f'{command}: Inspect selected Vigilia specifications without executing commands.\n'
+            '  --module PATH (repeatable), --tags TAG, --tag-query EXPR, or --all.\n'
+            '  Module paths are relative to vigilia/specifications/.\n')
+
+
+def test_run_help(command, argv):
+    return (f'{command}: Execute selected Vigilia specifications locally.\n'
+            '  --module PATH (repeatable), --tags TAG, --tag-query EXPR, or --all.\n'
+            '  --isolate-modules: one report per module through ci/docker-suite.sh;\n'
+            '  requires explicit --module paths, Docker and installed dependencies.\n'
+            '  By default one Vigilia process executes all selected modules together.\n'
+            '  Use the -- separator before these options in workflow commands.\n')

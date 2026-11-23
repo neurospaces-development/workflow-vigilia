@@ -74,6 +74,37 @@ class WorkflowAdapterTests(unittest.TestCase):
         self.ns['ci_artifacts_download'](['all', '--provider', 'gitlab'])
         self.assertIn('download --all --provider gitlab', self.commands[0][0])
 
+    def test_knowledge_base_direct_and_isolated_execution(self):
+        self.ns['test_run'](['--module', '20_vigilia/30_docker.t',
+                             '--module', '40_workflow-automator/27_schedule/summary.yml'])
+        command = self.commands.pop()[0]
+        self.assertIn('bin/vigilia --module 20_vigilia/30_docker.t --module', command)
+        self.ns['test_run'](['--isolate-modules', '--module', '20_vigilia/30_docker.t'])
+        self.assertIn('./ci/docker-suite.sh --module 20_vigilia/30_docker.t',
+                      self.commands.pop()[0])
+
+    def test_knowledge_base_prevents_accidental_full_execution(self):
+        for operation in ('run', 'inspect'):
+            with self.assertRaises(ValueError):
+                self.ns['test_' + operation]([])
+        with self.assertRaises(ValueError):
+            self.ns['test_run'](['--isolate-modules', '--all'])
+        with self.assertRaises(ValueError):
+            self.ns['test_run'](['--module', 'a.t; touch /tmp/unsafe', '--other'])
+        self.ns['test_run'](['--all'])
+        self.assertIn('bin/vigilia', self.commands.pop()[0])
+
+    def test_knowledge_base_inspection_and_completion(self):
+        self.ns['test_modules']([])
+        self.assertIn('--show-modules', self.commands.pop()[0])
+        self.ns['test_inspect'](['--module', '20_vigilia/30_docker.t'])
+        self.assertIn('--show-command-descriptions --module', self.commands.pop()[0])
+        self.ns['_completor_generic_expander'] = lambda obj: obj
+        comp = self.ns['test_run_completor']('test run', [], {})
+        self.assertEqual(comp['operation_path'], ['test', 'run'])
+        self.assertIn('--isolate-modules', comp['positional_arguments'][0]['completions'])
+        self.assertIn('--module', self.ns['test_inspect_help']('test inspect', []))
+
     def test_inventory_path_completion(self):
         self.ns['_completor_generic_expander'] = lambda obj: obj
         result = self.ns['ci_artifacts_inventory_completor']('ci artifacts_inventory', [], {})

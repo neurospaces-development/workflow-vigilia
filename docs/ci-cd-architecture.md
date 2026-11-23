@@ -326,3 +326,14 @@ Update this architecture document when trigger rules, test selection, runner
 capabilities, gates, artifact naming/provenance, or security boundaries change.
 Record new verified revision(s) in the operational documents only after
 checking native reports from *both* providers.
+
+### Developer-facing test selection through workflow
+
+`automation-workflow test modules` lists discovered specifications;
+`test inspect -- --module PATH` inspects their assertions without running them;
+`test run -- --module PATH` delegates exact selection to `bin/vigilia`.
+Repeated module paths execute together and maintain the specification order.
+`test run -- --isolate-modules --module PATH` is an explicit diagnostic mode
+that uses `ci/docker-suite.sh` for per-module evidence. An unfiltered local
+run must be requested explicitly with `--all`; no workflow wrapper should
+silently choose the full, potentially destructive Docker suite.
