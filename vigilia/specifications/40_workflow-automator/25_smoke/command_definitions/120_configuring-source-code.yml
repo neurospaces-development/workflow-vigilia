@@ -29,7 +29,6 @@ command_tests:
       checking for python script directory (pythondir)... ${PYTHON_PREFIX}/lib/python3.11/site-packages
       checking for python extension module directory (pyexecdir)... ${PYTHON_EXEC_PREFIX}/lib/python3.11/site-packages
       checking Python prefix is ... '${prefix}'
-      find: 'vigilia/data': No such file or directory
       checking that generated files are newer than configure... done
       : creating ./config.status
       config.status: creating Makefile
