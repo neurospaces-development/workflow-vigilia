@@ -2,8 +2,8 @@
 
 Both CI providers execute **the same ordered list of Docker-backed Vigilia
 modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The first fifteen modules passed on both GitHub Actions and GitLab CI/CD at
-revision `e19803f6fc4a1457bcc936281bdbc3cdd776419d`:
+The first eighteen modules passed on GitHub Actions and GitLab CI/CD at
+revision `a363438a99c451a6089888d594284260b856dace`:
 
 - `20_vigilia/30_docker.t` (3 assertions);
 - `20_vigilia/12_error_checking/summary.yml` (5);
@@ -20,7 +20,10 @@ revision `e19803f6fc4a1457bcc936281bdbc3cdd776419d`:
 - `40_workflow-automator/34_specific-features-annotations.t` (2);
 - `40_workflow-automator/38_rename_project/summary.yml` (5);
 - `40_workflow-automator/39_specific_features_ai/summary.yml` (16);
-- `40_workflow-automator/42_use-dot-local-bin/summary.yml` (4).
+- `40_workflow-automator/42_use-dot-local-bin/summary.yml` (4);
+- `40_workflow-automator/46_builtin/summary.yml` (16);
+- `40_workflow-automator/80_install-testing/10_debian/summary.yml` (2);
+- `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` (2).
 
 The timestamp assertions use a reproducible reference time:
 `Dockerfile.workflow-feature-testing` installs `libfaketime` and sets
@@ -28,23 +31,31 @@ The timestamp assertions use a reproducible reference time:
 `FAKETIME="@2025-10-11 11:38:32"`. The AI-token tests exercise local storage
 using synthetic tokens; they do not call the external OpenAI API.
 
-Three **new, independently selected modules** are proposed for hosted execution:
+Four **advanced harness modules** are being added for diagnostic CI/CD
+execution, without modifying the original test specifications:
 
-- `40_workflow-automator/46_builtin/summary.yml` (16 assertions): builtin
-  commands, configuration changes and source inspection, using the existing
-  `Dockerfile.features-workflow-installed-testing` fixture;
-- `40_workflow-automator/80_install-testing/10_debian/summary.yml` (2):
-  installation and command discovery using the Debian Bookworm image;
-- `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` (2):
-  installation and command discovery using the Ubuntu 24.04 image.
+- `40_workflow-automator/30_specific-features-cd.t` (9 enabled, 1 disabled):
+  includes tmux and SSH from the test container to itself;
+- `40_workflow-automator/40_remote_script_execution/summary.yml` (4):
+  uses `Docker::Remote`, so commands without a remote command user execute
+  **on the CI job host**, not automatically inside the Docker container;
+- `40_workflow-automator/44_roles/10_docker/summary.yml` (5):
+  asks for shared Docker-daemon access using `/var/run/docker.sock`, which
+  is not automatically available with GitLab's TLS Docker-in-Docker;
+- `40_workflow-automator/50_bash_completion/summary.yml` (30):
+  also uses `Docker::Remote`, with the same distinction between host-side
+  and container-side command execution.
 
-The suite thus selects **18 modules with 101 enabled command tests**:
-81 assertions already verified on both providers and 20 requiring hosted
-validation. Two other assertions are explicitly disabled. The new modules
-use ordinary Docker harnesses, with no declared `Docker::Remote` or shared
-Docker-daemon-socket mode. Their new images and exact-output assertions still
-require CI validation; static inspection does not establish runtime success.
-No existing test specifications are modified.
+The suite now lists **22 modules and 149 enabled command tests**: 101
+verified on both providers and 48 experimental assertions pending hosted
+validation. Three additional assertions are explicitly disabled. Failures
+in the four new modules are plausible and should be diagnosed using their
+independent reports, not treated as proof of product defects. In particular,
+GitHub's runner account and GitLab's `vigilia-ci` account do not necessarily
+have the `/home/neurospaces/...` checkout paths used by some command
+specifications. GitLab's Docker-in-Docker daemon also does not expose the
+host's Unix socket by default. No assertion has been skipped to conceal
+these prerequisites.
 
 See [Test specification execution prerequisites](test-specification-prerequisites.md)
 for the full module inventory, infrastructure requirements, and modules not
@@ -119,6 +130,14 @@ ci-results/docker-suite/run.XXXXXX/
   17-40_workflow-automator_80_install-testing_10_debian_summary.yml/
     ...
   18-40_workflow-automator_80_install-testing_20_ubuntu_summary.yml/
+    ...
+  19-40_workflow-automator_30_specific-features-cd.t/
+    ...
+  20-40_workflow-automator_40_remote_script_execution_summary.yml/
+    ...
+  21-40_workflow-automator_44_roles_10_docker_summary.yml/
+    ...
+  22-40_workflow-automator_50_bash_completion_summary.yml/
     ...
 ```
 

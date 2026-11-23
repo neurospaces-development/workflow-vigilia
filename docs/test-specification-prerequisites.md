@@ -3,7 +3,7 @@
 This document classifies the **execution requirements**, rather than the
 publication value, of the `vigilia` product knowledge base. Paths below are
 relative to `vigilia/specifications/`. The inventory reflects the repository
-through the proposed Docker-suite expansion in patch 0042 (36 modules in
+through the advanced-harness expansion in patch 0044 (36 modules in
 all). It is a source-level audit, **not** a claim that every module passes on
 hosted runners.
 
@@ -57,13 +57,15 @@ second copy of the specification or the definition of the final `full` suite.
 
 An unsuccessful pipeline alone cannot distinguish the last three cases.
 
-## Hosted Docker suite: 18 modules
+## Hosted Docker suite: 22 modules (18 verified, 4 experimental)
 
-The first **15 modules / 81 enabled command tests** passed on GitHub Actions
-and GitLab CI/CD at revision `e19803f6fc4a1457bcc936281bdbc3cdd776419d`.
-The final **three modules / 20 enabled tests** are proposed in patch 0042;
-their hosted outcome is unknown. Two additional tests in the first fifteen
-are explicitly disabled, and are not counted among the 81 executions.
+The first **18 modules / 101 enabled command tests** passed on GitHub
+Actions and GitLab CI/CD at revision
+`a363438a99c451a6089888d594284260b856dace`. Patch 0044 adds **four
+experimental modules / 48 enabled assertions**. Three other assertions
+are explicitly disabled (two in the verified group and one in the new
+group). The experimental modules have not yet been validated on hosted
+runners.
 
 | Specification | Tests enabled | Specific technical prerequisites | Status |
 |---|---:|---|---|
@@ -82,9 +84,24 @@ are explicitly disabled, and are not counted among the 81 executions.
 | `40_workflow-automator/38_rename_project/summary.yml` | 5 | Same image; mutable project files, isolated home | Verified hosted |
 | `40_workflow-automator/39_specific_features_ai/summary.yml` | 16 | Same image; synthetic API-token file operations; **no live API calls** | Verified hosted |
 | `40_workflow-automator/42_use-dot-local-bin/summary.yml` | 4 | Same image; writable `~/.local/bin` | Verified hosted |
-| `40_workflow-automator/46_builtin/summary.yml` | 16 | `Dockerfile.features-workflow-installed-testing`; preinstalled feature configuration; exact source-line/output expectations | **Added, pending hosted** |
-| `40_workflow-automator/80_install-testing/10_debian/summary.yml` | 2 | `Dockerfile.workflow-install-testing-debian`; Debian Bookworm image, apt repositories and package installation | **Added, pending hosted** |
-| `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` | 2 | `Dockerfile.workflow-install-testing-ubuntu`; Ubuntu 24.04 image, apt repositories and package installation | **Added, pending hosted** |
+| `40_workflow-automator/46_builtin/summary.yml` | 16 | `Dockerfile.features-workflow-installed-testing`; preinstalled feature configuration; exact source-line/output expectations | Verified hosted |
+| `40_workflow-automator/80_install-testing/10_debian/summary.yml` | 2 | `Dockerfile.workflow-install-testing-debian`; Debian Bookworm image, apt repositories and package installation | Verified hosted |
+| `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` | 2 | `Dockerfile.workflow-install-testing-ubuntu`; Ubuntu 24.04 image, apt repositories and package installation | Verified hosted |
+
+The four newly selected advanced-harness modules are experimental:
+
+| Specification | Enabled command tests | Additional prerequisite | CI status |
+|---|---:|---|---|
+| `40_workflow-automator/30_specific-features-cd.t` | 9 (1 disabled) | tmux, sshpass/sshd, container self-SSH, container IP substitution | Pending hosted |
+| `40_workflow-automator/40_remote_script_execution/summary.yml` | 4 | `Docker::Remote`, local checkout and command availability on the CI job host, SSH/scp to container | Pending hosted |
+| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker-daemon access from inside a test container; Unix socket versus GitLab TLS DinD | Pending hosted |
+| `40_workflow-automator/50_bash_completion/summary.yml` | 30 | `Docker::Remote`, local checkout and executable `feature-testing-workflow` on CI job host | Pending hosted |
+
+**Do not silently skip failures in these modules.** The serial suite records
+one report per module and continues after a failure. The first run is meant
+to establish which environment assumptions need addressing on each provider.
+The goal is the same specifications on both platforms, not separate test
+variants.
 
 The two distribution tests run installation **within the image** and then
 check the installed `feature-testing-workflow` configuration. Their need for
@@ -93,7 +110,7 @@ not proof that the tests need changes. The builtin module's exact-output
 assertions include source line numbers; source changes may legitimately
 require specification review.
 
-## Remaining 18 modules: prerequisites and blockers
+## Remaining 14 modules: prerequisites and blockers
 
 These modules are *not* selected by the Docker-suite list above. Some are
 already exercised by the **separate native smoke/regression jobs**. Others
@@ -114,10 +131,6 @@ Docker testing. They remain part of unfiltered `vigilia` discovery.
 | `20_vigilia/50_merges.t` | Same `Docker::Image` dependency (`vigilia-image`); expects merge fixtures and a config file. | Provision image and merged-module fixture consistently. |
 | `40_workflow-automator/12_help-pages/summary.yml` | No Docker; 24 command-line help assertions; exact text may change with product version. | Pilot as native CI module and update intended help expectations if needed. |
 | `40_workflow-automator/25_smoke/summary.yml` | `Dockerfile.workflow` (separate image); long **stateful** build/install, `.bashrc`, archive and shell-history sequence; some assertions disabled for harness limitations. | Isolated end-to-end pilot with sufficient timeout and sequence preservation. |
-| `40_workflow-automator/30_specific-features-cd.t` | Standard Docker image, but includes tmux and **SSH commands aimed at the container address** and a disabled tmux regex check. | Validate DinD reachability/SSH transport first; then pilot as a whole. |
-| `40_workflow-automator/40_remote_script_execution/summary.yml` | `Docker::Remote` harness; remote-shell script transfer/execution and SSH routing. | Provide a reachable SSH endpoint and controlled credentials in an isolated runner. |
-| `40_workflow-automator/44_roles/10_docker/summary.yml` | Standard Docker harness with `docker_in_docker.shared: 'yes'`; expects usable `/var/run/docker.sock` **inside** the test container. | Design secure daemon forwarding for both GitHub and GitLab; do not assume DinD TCP is a socket mount. |
-| `40_workflow-automator/50_bash_completion/summary.yml` | `Docker::Remote` harness, remote command-user setup and Bash completion fixture. | Pilot after validating the remote harness and its transport. |
 | `40_workflow-automator/80_install-testing/30_fedora/summary.yml` | `Dockerfile.workflow-install-testing-fedora` uses `fedora:40`, DNF repositories, CPAN `TOML`, build/install. | Check base-image/repository availability and distribution package compatibility first. |
 | `40_workflow-automator/80_install-testing/40_opensuse/summary.yml` | `Dockerfile.workflow-install-testing-opensuse` uses rolling `opensuse/tumbleweed`, `zypper`, CPAN `TOML`, build/install. | Check current package names, image build reproducibility and repository availability first. |
 
