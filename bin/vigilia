@@ -7716,6 +7716,35 @@ sub _docker_compute_next_ip_address
 }
 
 
+
+# A bind mount is resolved by the Docker daemon, not necessarily by the local
+# CLI process.  In particular, GitLab CI connects to a DinD daemon over TLS:
+# /var/run/docker.sock exists in that daemon's filesystem but not in the job
+# container.  Probe the actual socket group from a short-lived container on
+# the selected daemon, then grant that group to the test container.
+#
+# The probe uses the image we have just built, so it needs neither an external
+# helper image nor access to a public registry.  --mount rejects a missing
+# socket instead of silently creating a directory as -v can do.
+sub _docker_shared_socket_options
+{
+    my ($self, $image) = @_;
+
+    my $probe_command = "$docker_command_no_redirect run --rm --user 0"
+        . " --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock,readonly"
+        . " --entrypoint /usr/bin/stat $image -c %g /var/run/docker.sock";
+    my $probe_output = `$probe_command 2>&1`;
+
+    if ($? || $probe_output !~ m{\A\s*(\d+)\s*\z})
+    {
+        return \ "_docker_shared_socket_options: cannot inspect the daemon-side Docker socket ($probe_command): $probe_output";
+    }
+
+    my $socket_group_id = $1;
+    return " -v /var/run/docker.sock:/var/run/docker.sock --group-add $socket_group_id";
+}
+
+
 sub _docker_preparer
 {
     my $self = shift;
@@ -7860,7 +7889,9 @@ sub _docker_preparer
 
     if ($harness_class->{docker}->{docker_in_docker}->{shared})
     {
-	$shared_volumes_option .= ' -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)';
+        my $socket_options = $self->_docker_shared_socket_options($harness_class->{docker}->{name_image});
+        return $socket_options if ref($socket_options) eq 'SCALAR';
+        $shared_volumes_option .= $socket_options;
     }
 
     # start the built container
@@ -8353,7 +8384,9 @@ sub _docker_preparer
 
     if ($harness_class->{docker}->{docker_in_docker}->{shared})
     {
-	$shared_volumes_option .= ' -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)';
+        my $socket_options = $self->_docker_shared_socket_options($harness_class->{docker}->{name_image});
+        return $socket_options if ref($socket_options) eq 'SCALAR';
+        $shared_volumes_option .= $socket_options;
     }
 
     #t need more options to assign a static IP address,

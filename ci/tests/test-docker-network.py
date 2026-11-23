@@ -15,6 +15,8 @@ source = SOURCE.read_text()
 package_start = source.index('\npackage Heterarch::Test::ExecutionContext::Harness::Docker;')
 start = source.index('\nsub _docker_preparer\n', package_start)
 end = source.index('\nsub _docker_reparer\n', start)
+SOCKET_HELPER_START = source.index('\nsub _docker_shared_socket_options\n', package_start)
+SOCKET_HELPER = source[SOCKET_HELPER_START:start]
 PREPARER = source[start:end]
 
 PERL_DRIVER = r'''
@@ -23,14 +25,14 @@ use warnings;
 package Heterarch::Test::ExecutionContext::Harness::Docker;
 our $docker_command_no_redirect = 'docker';
 our $docker_command_selected = 'docker';
-''' + PREPARER + r'''
+''' + SOCKET_HELPER + PREPARER + r'''
 my $harness = bless {
     class => { docker => {
         dockerfile => 'Dockerfile.mock',
         name_image => 'vigilia_mock_image',
         name_container => 'vigilia_mock_container',
         shared_volumes => [],
-        docker_in_docker => {shared => 0},
+        docker_in_docker => {shared => ($ENV{FAKE_SHARED_DOCKER_SOCKET} // 0)},
     } },
 }, __PACKAGE__;
 my $result = $harness->_docker_preparer(undef);
@@ -54,6 +56,13 @@ case "$1 $2" in
             exit 9
         fi
         echo mock-network-id
+        ;;
+    'run --rm')
+        if [ -n "${FAKE_SOCKET_FAIL:-}" ]; then
+            echo 'invalid mount config: bind source path does not exist: /var/run/docker.sock' >&2
+            exit 7
+        fi
+        printf '%s\n' "${FAKE_SOCKET_GID:-105}"
         ;;
     'run '*|'run ')
         if [ -n "${FAKE_RUN_FAIL:-}" ]; then
@@ -82,7 +91,8 @@ class DockerNetworkPreparerTests(unittest.TestCase):
         self.env['FAKE_DOCKER_LOG'] = str(self.log)
         self.env['PATH'] = f'{self.root}:{self.env["PATH"]}'
         for name in ('VIGILIA_DOCKER_NETWORK_SUBNET', 'FAKE_EXISTING_SUBNET',
-                     'FAKE_CREATE_FAIL', 'FAKE_RUN_FAIL'):
+                     'FAKE_CREATE_FAIL', 'FAKE_RUN_FAIL',
+                     'FAKE_SHARED_DOCKER_SOCKET', 'FAKE_SOCKET_FAIL', 'FAKE_SOCKET_GID'):
             self.env.pop(name, None)
 
     def execute(self, **overrides):
@@ -135,6 +145,35 @@ class DockerNetworkPreparerTests(unittest.TestCase):
         self.assertEqual(run.returncode, 3)
         self.assertIn('invalid VIGILIA_DOCKER_NETWORK_SUBNET', run.stderr)
         self.assertFalse(any(cmd[:1] == ['network'] for cmd in calls))
+
+    def test_shared_socket_group_is_inspected_in_daemon_not_job(self):
+        run, calls = self.execute(FAKE_SHARED_DOCKER_SOCKET='1',
+                                  FAKE_SOCKET_GID='2375')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        probe = [cmd for cmd in calls if cmd[:2] == ['run', '--rm']]
+        self.assertEqual(len(probe), 1)
+        self.assertIn('type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock,readonly',
+                      probe[0])
+        self.assertEqual(probe[0][-3:], ['-c', '%g', '/var/run/docker.sock'])
+        run_command = next(cmd for cmd in calls if cmd[:2] == ['run', '--net'])
+        self.assertIn('--group-add', run_command)
+        self.assertEqual(run_command[run_command.index('--group-add') + 1], '2375')
+        self.assertIn('/var/run/docker.sock:/var/run/docker.sock', run_command)
+
+    def test_missing_daemon_socket_fails_before_container_start(self):
+        run, calls = self.execute(FAKE_SHARED_DOCKER_SOCKET='1',
+                                  FAKE_SOCKET_FAIL='1')
+        self.assertEqual(run.returncode, 3)
+        self.assertIn('cannot inspect the daemon-side Docker socket', run.stderr)
+        self.assertIn('bind source path does not exist', run.stderr)
+        self.assertFalse(any(cmd[:2] == ['run', '--net'] for cmd in calls))
+
+    def test_non_numeric_socket_group_is_rejected(self):
+        run, calls = self.execute(FAKE_SHARED_DOCKER_SOCKET='1',
+                                  FAKE_SOCKET_GID='not-a-group-id')
+        self.assertEqual(run.returncode, 3)
+        self.assertIn('cannot inspect the daemon-side Docker socket', run.stderr)
+        self.assertFalse(any(cmd[:2] == ['run', '--net'] for cmd in calls))
 
 
 if __name__ == '__main__':
