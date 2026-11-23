@@ -237,3 +237,15 @@ automation-workflow ci artifacts_report
 
 The `--` is required by the `automation-workflow` command-line parser; it
 separates workflow options from operation-specific arguments.
+
+### Installation timing variability (November 2026)
+
+In the first full-only push at revision `cc04be296a3d`, GitHub completed
+all 256 enabled command assertions. GitLab executed all 256 but reported a
+single timeout in `20_vigilia/40_output_formats.t`: reinstalling the developer
+package inside its deliberately provisioned Docker container exceeded the
+original ten-second assertion timeout. Its expected output is unchanged; the
+assertion timeout is now 120 seconds to accommodate cold CPAN/Autotools
+installation on hosted runners. This is a test-environment timing adjustment,
+not a suppression of the installation assertion. Hosted confirmation remains
+necessary.
