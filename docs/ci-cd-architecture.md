@@ -348,3 +348,18 @@ These operations use `ci/download-artifacts.py`'s existing REST client; they
 do not fetch artifacts or dispatch new builds. Non-successful/missing runs
 produce nonzero exit status. Remote dispatch is a separately permissioned
 capability and is deliberately not enabled by these read-only operations.
+
+### Native report analysis (offline)
+
+After downloading and verifying the full artifacts, use
+`automation-workflow ci results`, `ci failures`, `ci compare`, and
+`ci timings -- --last 10`. These operations read verified native YAML
+reports from existing ZIP archives in `ci-artifacts`; they make no provider
+API calls and do not regenerate or modify evidence. `ci compare` checks the
+counts and measured durations for the same source revision.
+
+Durations originate from `global.time_start`/`global.time_end`; the per-module
+ranking sums native assertion timings, which need not include Docker setup,
+preparation/restore, or CI provisioning overhead. GitLab JUnit XML can be
+added later as a derived presentation artifact, never as the authoritative
+native report.

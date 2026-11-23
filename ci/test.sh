@@ -127,6 +127,7 @@ if (( ! focused )); then
     run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
     run_step docker-network-regression python3 ci/tests/test-docker-network.py
     run_step docker-suite-regression python3 ci/tests/test-docker-suite.py
+    run_step report-analysis-regression python3 ci/tests/test-report-analysis.py
 fi
 
 if (( build )); then

@@ -321,3 +321,76 @@ def ci_wait_help(command, argv):
             '  --provider github|gitlab, --branch NAME, --run-id ID,\n'
             '  --wait-timeout SECONDS, --poll-interval SECONDS.\n'
             '  Exit nonzero for failed runs and timeouts; no artifacts downloaded.\n')
+
+
+# Native report analysis is local and read-only: verify already downloaded
+# artifacts before interpreting report.yml. It does not contact CI APIs.
+def _ci_analysis_schedule(action, argv):
+    program = '"$(git rev-parse --show-toplevel)/ci/report-analysis.py"'
+    command = 'python3 ' + program + ' ' + shlex.quote(action)
+    if argv:
+        command += ' ' + ' '.join(shlex.quote(str(arg)) for arg in argv)
+    execute_command_array([command])
+
+
+def ci_results(argv):
+    _ci_analysis_schedule('results', argv)
+
+
+def ci_failures(argv):
+    _ci_analysis_schedule('failures', argv)
+
+
+def ci_compare(argv):
+    _ci_analysis_schedule('compare', argv)
+
+
+def ci_timings(argv):
+    _ci_analysis_schedule('timings', argv)
+
+
+def _ci_analysis_completor(operation, argv, analysis):
+    return _completor_generic_expander({
+        'analysis': analysis, 'complete_arguments_array': argv,
+        'operation_path': ['ci', operation],
+        'positional_arguments': [{'completions': {
+            '--directory': 'Downloaded artifact root',
+            '--profile': 'full, docker, smoke, or regression',
+            '--provider': 'github or gitlab',
+            **({'--last': 'Number of recent revisions (1..50)',
+                '--top': 'Number of slowest modules (1..100)'} if operation == 'timings' else {}),
+        }}],
+    })
+
+
+def ci_results_completor(command, argv, analysis):
+    return _ci_analysis_completor('results', argv, analysis)
+
+
+def ci_failures_completor(command, argv, analysis):
+    return _ci_analysis_completor('failures', argv, analysis)
+
+
+def ci_compare_completor(command, argv, analysis):
+    return _ci_analysis_completor('compare', argv, analysis)
+
+
+def ci_timings_completor(command, argv, analysis):
+    return _ci_analysis_completor('timings', argv, analysis)
+
+
+def ci_results_help(command, argv):
+    return f'{command}: Summarize native Vigilia counters from verified downloaded artifacts.\n'
+
+
+def ci_failures_help(command, argv):
+    return f'{command}: Show failed assertions and affected modules from verified report.yml files.\n'
+
+
+def ci_compare_help(command, argv):
+    return f'{command}: Compare GitHub and GitLab counts, failures and durations at one revision.\n'
+
+
+def ci_timings_help(command, argv):
+    return (f'{command}: Show elapsed test duration and slowest assertion groups.\n'
+            '  Options: --last N (up to 50 distinct revisions), --top N (up to 100).\n')

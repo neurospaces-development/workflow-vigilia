@@ -114,6 +114,17 @@ class WorkflowAdapterTests(unittest.TestCase):
             self.assertEqual(result['operation_path'], ['ci', name])
             self.assertIn('ci ' + name, self.ns['ci_' + name + '_help']('ci ' + name, []))
 
+    def test_native_report_operations_and_completion(self):
+        for name in ('results', 'failures', 'compare', 'timings'):
+            self.ns['ci_' + name](['--provider', 'github'])
+            command = self.commands.pop()[0]
+            self.assertIn('report-analysis.py', command)
+            self.assertIn(' ' + name + ' --provider github', command)
+            self.ns['_completor_generic_expander'] = lambda obj: obj
+            result = self.ns['ci_' + name + '_completor']('ci ' + name, [], {})
+            self.assertEqual(result['operation_path'], ['ci', name])
+            self.assertIn('ci ' + name, self.ns['ci_' + name + '_help']('ci ' + name, []))
+
     def test_inventory_path_completion(self):
         self.ns['_completor_generic_expander'] = lambda obj: obj
         result = self.ns['ci_artifacts_inventory_completor']('ci artifacts_inventory', [], {})
