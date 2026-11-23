@@ -91,6 +91,7 @@ class Handler(BaseHTTPRequestHandler):
                     {'id': 102, 'name': 'vigilia-results-regression-111-1',
                      'expired': state['expire_regression']},
                     {'id': 103, 'name': 'vigilia-docker-pilot-111-1', 'expired': state['expire_docker']},
+                    {'id': 104, 'name': 'vigilia-full-111-1', 'expired': False},
                 ]}
             elif '/artifacts/' in path and path.endswith('/zip'):
                 # Match the real GitHub API: incorrect binary Accept values
@@ -135,6 +136,9 @@ class Handler(BaseHTTPRequestHandler):
                     {'id': 203, 'name': 'vigilia-docker-pilot',
                      'status': 'failed' if state['failed_job'] else 'success',
                      'artifacts_file': {'size': 0 if state['missing_docker_artifact'] else 300}},
+                    {'id': 204, 'name': 'vigilia-full',
+                     'status': 'failed' if state['failed_job'] else 'success',
+                     'artifacts_file': {'size': 300}},
                 ]
                 if state['missing_job']:
                     data = [job for job in data if job['id'] != 202]
@@ -226,6 +230,25 @@ class ArtifactDownloadTests(unittest.TestCase):
         self.assertEqual(self.server.state['github_zip_accepts'],
                          ['application/vnd.github+json', 'application/vnd.github+json'])
         self.assertEqual(self.server.state['storage_accepts'], ['*/*'] * 4)
+
+    def test_full_profile_download_and_inventory(self):
+        """Full profile is opt-in; a failed full job still has downloadable evidence."""
+        self.server.state['failed_run'] = True
+        self.server.state['failed_job'] = True
+        inventory_out = io.StringIO()
+        with contextlib.redirect_stdout(inventory_out):
+            self.assertEqual(self.invoke('inventory', '--provider', 'github',
+                                         '--mode', 'latest'), 0)
+        self.assertIn('vigilia-full-111-1', inventory_out.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.invoke('download', '--profile', 'full',
+                                         '--mode', 'latest'), 0)
+            self.assertEqual(self.invoke('verify'), 0)
+        pointer = json.loads((self.output / 'latest.json').read_text())
+        manifest = json.loads((self.output / pointer['manifest']).read_text())
+        self.assertEqual({(a['provider'], a['profile']) for a in manifest['artifacts']},
+                         {('github', 'full'), ('gitlab', 'full')})
+        self.assertEqual({a['artifact_id'] for a in manifest['artifacts']}, {104, 204})
 
     def test_early_failure_artifacts_without_environment(self):
         self.server.state['failed_run'] = True
@@ -427,7 +450,7 @@ class ArtifactDownloadTests(unittest.TestCase):
             self.assertEqual(self.invoke('verify'), 0)
         pointer = json.loads((self.output / 'latest.json').read_text())
         manifest = json.loads((self.output / pointer['manifest']).read_text())
-        self.assertEqual(len(manifest['artifacts']), 6)
+        self.assertEqual(len(manifest['artifacts']), 8)
 
     def test_custom_selection_preserves_previous_bundle(self):
         with contextlib.redirect_stdout(io.StringIO()):

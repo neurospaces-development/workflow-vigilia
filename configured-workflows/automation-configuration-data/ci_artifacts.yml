@@ -15,6 +15,7 @@ ci_artifacts:
       smoke: vigilia-results-smoke-{run_id}-{attempt}
       regression: vigilia-results-regression-{run_id}-{attempt}
       docker: vigilia-docker-pilot-{run_id}-{attempt}
+      full: vigilia-full-{run_id}-{attempt}
   gitlab:
     project: neurospaces-development/workflow-vigilia
     job_prefix: vigilia-regression
@@ -23,6 +24,7 @@ ci_artifacts:
       smoke: 'vigilia-regression: [smoke]'
       regression: 'vigilia-regression: [regression]'
       docker: vigilia-docker-pilot
+      full: vigilia-full
   selection:
     mode: latest-successful
   download:

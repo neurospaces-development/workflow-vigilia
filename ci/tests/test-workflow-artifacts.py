@@ -52,6 +52,12 @@ class WorkflowAdapterTests(unittest.TestCase):
         self.assertIn('download --profile docker --mode latest-wait --poll-interval 5',
                       self.commands[0][0])
 
+    def test_download_full_profile(self):
+        self.ns['ci_artifacts_download'](['full', '--mode', 'latest-wait',
+                                          '--wait-timeout', '5400'])
+        self.assertIn('download --profile full --mode latest-wait --wait-timeout 5400',
+                      self.commands[0][0])
+
     def test_download_docker_pilot(self):
         self.ns['ci_artifacts_download'](['docker', '--provider', 'github',
                                           '--mode', 'latest'])

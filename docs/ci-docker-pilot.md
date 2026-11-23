@@ -288,3 +288,29 @@ These are illustrative IDs from the initial pilot; inspect the current
 run/pipeline inventory before selecting an archive. The downloader produces a combined ZIP bundle containing the original provider
 archives and a manifest with revision and checksum evidence. These commands do
 not require changes to the tests or access to the runner's Docker daemon.
+
+## Full knowledge-base CI (all 36 modules)
+
+The separate GitHub `full-tests` and GitLab `vigilia-full` jobs run the
+**unfiltered** `VIGILIA_TEST_PROFILE=full` selection through `ci/test.sh`,
+inside the existing disposable Docker-capable hosted runner environments.
+Both jobs have a 90-minute cap and retain artifacts on failure. In GitLab,
+`vigilia-full` inherits the DinD bootstrap, TLS and unprivileged account
+setup from `vigilia-docker-pilot`, but invokes `ci/test.sh` directly.
+
+Unlike the serial `ci/docker-suite.modules` job, full does not have a module
+allowlist or an individual per-module CI report. It runs all discovered
+modules together, retaining dependencies such as preparation/reparation
+between modules and the `vigilia-image` created by a preceding module.
+This is essential for matching the semantics of local `bin/vigilia`.
+
+The 22-module Docker suite stays in place as a verified baseline, providing
+per-module diagnostics even if an additional legacy full-suite assertion
+fails. The full jobs are **not** presumed to pass until both hosted runners
+have produced successful native reports; the first runs are diagnostic.
+
+```sh
+automation-workflow ci artifacts_download full -- --mode latest-wait --wait-timeout 7200
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```

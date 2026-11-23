@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import unittest
 
+import yaml
+
 SOURCE = Path(__file__).resolve().parents[1] / 'docker-suite.sh'
 MODULES = ('20_vigilia/30_docker.t',
            '20_vigilia/12_error_checking/summary.yml')
@@ -133,6 +135,23 @@ class DockerSuiteTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(len((self.root / 'test.log').read_text().splitlines()), 1)
         self.assertIn('12_error_checking', (self.root / 'test.log').read_text())
+
+    def test_full_jobs_use_unfiltered_vigilia_profile(self):
+        """Full CI must not become a second curated list of specifications."""
+        root = SOURCE.parents[1]
+        github = yaml.safe_load((root / '.github/workflows/regression-tests.yml').read_text())
+        full = github['jobs']['full-tests']
+        self.assertEqual(full['env']['VIGILIA_TEST_PROFILE'], 'full')
+        self.assertEqual(full['env']['VIGILIA_ALLOW_FULL'], '1')
+        self.assertNotIn('VIGILIA_REGEX_SELECTOR', full['env'])
+        self.assertTrue(any(step.get('run') == './ci/test.sh' for step in full['steps']))
+
+        gitlab = yaml.safe_load((root / '.gitlab-ci.yml').read_text())
+        self.assertEqual(gitlab['vigilia-full']['extends'], 'vigilia-docker-pilot')
+        self.assertEqual(gitlab['vigilia-full']['variables']['VIGILIA_DOCKER_EXECUTION'], 'full')
+        self.assertIn('VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1',
+                      gitlab['vigilia-docker-pilot']['script'][0])
+        self.assertNotIn('VIGILIA_REGEX_SELECTOR', gitlab['vigilia-full']['variables'])
 
     def test_docker_unavailable_prevents_any_module_execution(self):
         proc = self.invoke(FAKE_DOCKER_UNAVAILABLE='1')

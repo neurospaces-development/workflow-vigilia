@@ -214,17 +214,44 @@ vigilia-docker-pilot:
           tail -n 60 "$CI_RESULTS_DIR/deps.log" >&2
           exit "$rc"
         }
-      sudo -H -u vigilia-ci env \
-        CI_RESULTS_DIR="$CI_RESULTS_DIR" \
-        VIGILIA_DOCKER_NETWORK_SUBNET="$VIGILIA_DOCKER_NETWORK_SUBNET" \
-        DOCKER_HOST="$DOCKER_HOST" \
-        DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
-        DOCKER_CERT_PATH="$cert_dir" \
-        ./ci/docker-suite.sh
+      # Full runs use the identical unfiltered selection as local bin/vigilia;
+      # leave the 22-module isolation regression unchanged.
+      if [[ ${VIGILIA_DOCKER_EXECUTION:-modules} == full ]]; then
+        sudo -H -u vigilia-ci env \
+          CI_RESULTS_DIR="$CI_RESULTS_DIR" \
+          VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1 \
+          VIGILIA_DOCKER_NETWORK_SUBNET="$VIGILIA_DOCKER_NETWORK_SUBNET" \
+          DOCKER_HOST="$DOCKER_HOST" \
+          DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
+          DOCKER_CERT_PATH="$cert_dir" \
+          ./ci/test.sh
+      else
+        sudo -H -u vigilia-ci env \
+          CI_RESULTS_DIR="$CI_RESULTS_DIR" \
+          VIGILIA_DOCKER_NETWORK_SUBNET="$VIGILIA_DOCKER_NETWORK_SUBNET" \
+          DOCKER_HOST="$DOCKER_HOST" \
+          DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
+          DOCKER_CERT_PATH="$cert_dir" \
+          ./ci/docker-suite.sh
+      fi
   artifacts:
     when: always
     expire_in: 30 days
     # Keep the existing job/artifact name for REST downloader compatibility.
     name: 'vigilia-docker-pilot-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
+    paths:
+      - ci-results/
+
+# Full, unfiltered knowledge-base execution. Inherits the same trusted-branch
+# rule and disposable Docker-in-Docker/TLS bootstrap as vigilia-docker-pilot.
+vigilia-full:
+  extends: vigilia-docker-pilot
+  timeout: 90 minutes
+  variables:
+    VIGILIA_DOCKER_EXECUTION: full
+  artifacts:
+    when: always
+    expire_in: 30 days
+    name: 'vigilia-full-$CI_JOB_ID-$CI_COMMIT_SHORT_SHA'
     paths:
       - ci-results/

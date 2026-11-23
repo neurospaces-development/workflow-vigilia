@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / 'configured-workflows/automation-configuration-data/ci_artifacts.yml'
 MAX_JSON = 8 * 1024 * 1024
 MAX_ZIP = 512 * 1024 * 1024
-PROFILES = ('smoke', 'regression', 'docker')
+PROFILES = ('smoke', 'regression', 'docker', 'full')
 MAX_SELECTED_ARTIFACTS = 50
 DEFAULT_WAIT_TIMEOUT = 1800  # seconds
 DEFAULT_POLL_INTERVAL = 15  # seconds
@@ -238,6 +238,7 @@ class GitHub:
             'smoke': 'vigilia-results-smoke-{run_id}-{attempt}',
             'regression': 'vigilia-results-regression-{run_id}-{attempt}',
             'docker': 'vigilia-docker-pilot-{run_id}-{attempt}',
+            'full': 'vigilia-full-{run_id}-{attempt}',
         }
         pattern = self.names.get(profile, patterns[profile])
         return pattern.format(run_id=run['id'], attempt=run['attempt'])
@@ -287,7 +288,8 @@ class GitLab:
     def expected_name(self, profile, run):
         names = {'smoke': f'{self.job_prefix}: [smoke]',
                  'regression': f'{self.job_prefix}: [regression]',
-                 'docker': 'vigilia-docker-pilot'}
+                 'docker': 'vigilia-docker-pilot',
+                 'full': 'vigilia-full'}
         return self.names.get(profile, names[profile])
 
     def inventory(self, run):

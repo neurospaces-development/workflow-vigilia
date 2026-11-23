@@ -57,21 +57,13 @@ second copy of the specification or the definition of the final `full` suite.
 
 An unsuccessful pipeline alone cannot distinguish the last three cases.
 
-## Hosted Docker suite: 22 modules (GitLab verified; GitHub build timeout)
+## Hosted Docker suite: 22 modules (both platforms verified)
 
-At revision `92ec1dad5dc630f8e3bfbecb020804fd7ff3bb03`, **all 22
-modules / 149 enabled assertions passed on GitLab CI/CD**. GitHub Actions
-passed 21 modules / 144 enabled assertions, with the five-assertion
-Docker-role module failing. Three assertions elsewhere in the knowledge base
-are explicitly disabled and are not included in the 149 enabled assertions.
-
-The Docker-role test now works with GitLab's remote daemon socket and nested
-Docker client. On GitHub, the first Docker-role assertion timed out after
-its original **60-second** limit, while the image was still installing Debian
-packages. Subsequent assertions failed because the image had not been built.
-Its timeout is now **900 seconds** to allow a cold build on hosted runners;
-this adjustment does not modify its expected output or skip any test. Hosted
-GitHub validation of the new limit is pending.
+At revision `6d00bee29480b91157a1db6a858e818bec7b4613`, **all 22
+modules and 149 enabled assertions passed on both GitHub Actions and GitLab
+CI/CD**. Three assertions in the 22 modules remain explicitly disabled.
+The Docker-role image build uses a 900-second timeout to support cold builds
+on hosted runners; the assertion and expected output are unchanged.
 
 | Specification | Tests enabled | Specific technical prerequisites | Status |
 |---|---:|---|---|
@@ -100,7 +92,7 @@ The four advanced-harness modules have been executed in CI/CD:
 |---|---:|---|---|
 | `40_workflow-automator/30_specific-features-cd.t` | 9 (1 disabled) | tmux, sshpass/sshd, container self-SSH, container IP substitution | Verified hosted |
 | `40_workflow-automator/40_remote_script_execution/summary.yml` | 4 | `Docker::Remote`; source checkout is provided inside its Docker image; SSH/scp and host-side preparer dispatch | Verified hosted |
-| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker socket; daemon-side socket group; nested Docker 20.10 client; legacy build output; cold-build timeout | GitLab verified; GitHub timeout fix pending |
+| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker socket; daemon-side socket group; nested Docker 20.10 client; legacy build output; cold-build timeout | Verified hosted |
 | `40_workflow-automator/50_bash_completion/summary.yml` | 30 | `Docker::Remote`; `feature-testing-workflow` and source checkout are provided inside the Docker image | Verified hosted |
 
 **Do not silently skip failures in these modules.** The serial suite records
@@ -116,6 +108,26 @@ package repositories during image construction is a routine prerequisite,
 not proof that the tests need changes. The builtin module's exact-output
 assertions include source line numbers; source changes may legitimately
 require specification review.
+
+## Complete unfiltered CI execution
+
+At revision `6d00bee29480b91157a1db6a858e818bec7b4613`, the Docker
+suite passed **22 modules and 149 enabled assertions** on **both** hosted
+platforms. GitHub's Docker-role image-build timeout was increased to 900 s
+without changing its expected output.
+
+The new `full` CI jobs execute all **36 discovered modules in one `vigilia`
+run**, in the same configuration as plain local `bin/vigilia`. There is
+no separate curated selection list. In particular, `20_preparation.t` and
+`25_preparation_checker.t` share state and contain no command assertions,
+so independently invoking them through the positive-assertion CI gate is not
+equivalent to testing the full knowledge base. `15_docker_creator.t` creates
+an image needed by `41_docker_creator_output_formats.t` and `50_merges.t`.
+
+The first full jobs should be treated as **diagnostic executions**. The 14
+previously unselected modules have not all passed on hosted runners; some
+may require fixes to legacy expected output, package provisioning or image
+setup. Full-suite failures remain failing CI jobs, and logs are preserved.
 
 ## Remaining 14 modules: prerequisites and blockers
 

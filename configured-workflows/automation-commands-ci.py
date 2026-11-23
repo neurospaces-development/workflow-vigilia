@@ -13,7 +13,7 @@ def _ci_artifacts_schedule(subcommand, argv):
         selection = arguments.pop(0)
         if selection in ('latest', 'latest-successful', 'latest-wait'):
             arguments = ['--mode', selection] + arguments
-        elif selection in ('smoke', 'regression', 'docker'):
+        elif selection in ('smoke', 'regression', 'docker', 'full'):
             arguments = ['--profile', selection] + arguments
         elif selection == 'all':
             arguments = ['--all'] + arguments
@@ -67,7 +67,7 @@ def _ci_artifacts_completor(operation, argv, analysis):
                 '--poll-interval': 'Polling interval in seconds',
                 '--revision': 'Select a specific Git revision',
                 '--provider': 'Select one or more providers',
-                '--profile': 'Select smoke, regression or Docker pilot archives',
+                '--profile': 'Select smoke, regression, Docker or full-suite archives',
                 'docker': 'Docker pilot artifact archive',
                 'all': 'All available job artifact archives',
                 '--run-id': 'GitHub run / GitLab pipeline ID',
@@ -111,8 +111,8 @@ def ci_artifacts_inventory_help(command, argv):
 
 def ci_artifacts_download_help(command, argv):
     return (f'{command}: Download selected GitHub and GitLab job artifacts.\n'
-            '  First argument: latest, latest-successful, latest-wait, Git SHA, smoke, regression, docker, or all.\n'
-            '  Selection: --profile smoke|regression|docker, --name GLOB, --all, or --id ID.\n'
+            '  First argument: latest, latest-successful, latest-wait, Git SHA, smoke, regression, docker, full, or all.\n'
+            '  Selection: --profile smoke|regression|docker|full, --name GLOB, --all, or --id ID.\n'
             '  Targeting: --provider github|gitlab, --run-id ID, --revision SHA,\n'
             '  --mode latest|latest-successful|latest-wait|revision, --output DIR.\n'
             '  latest-wait targets the local HEAD (or --revision FULL_SHA); waits for all providers.\n'

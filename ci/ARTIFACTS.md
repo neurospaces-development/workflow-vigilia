@@ -12,6 +12,7 @@ python3 ci/download-artifacts.py list
 python3 ci/download-artifacts.py download
 python3 ci/download-artifacts.py download --mode latest
 python3 ci/download-artifacts.py download --mode latest-wait --profile docker
+python3 ci/download-artifacts.py download --mode latest-wait --profile full --wait-timeout 7200
 python3 ci/download-artifacts.py download --mode revision --revision a12a68e575522285dea96bb61a7edff8d315c60d
 python3 ci/download-artifacts.py download --provider github --profile smoke
 python3 ci/download-artifacts.py verify
@@ -219,3 +220,31 @@ pointer = json.loads((root / 'latest.json').read_text())
 print(root / pointer['bundle'])
 PY
 ```
+
+## Unfiltered full knowledge-base profile
+
+The separate `full` CI jobs run **one unfiltered `vigilia` invocation** with
+`VIGILIA_TEST_PROFILE=full` and `VIGILIA_ALLOW_FULL=1`, using the same module
+selection as plain `bin/vigilia` on a suitably provisioned machine. Unlike
+`ci/docker-suite.modules`, the full profile is **not a maintained test list**:
+new specifications are discovered automatically. The full invocation keeps
+ordering/side effects between the `20_preparation` and
+`25_preparation_checker` modules and image creation dependencies intact.
+
+The 22-module serial Docker suite remains a separate, previously validated
+regression. Full CI results may fail on the first attempts if older fixtures
+need maintenance; those are real failures and do not cause assertions to be
+silently skipped.
+
+To retrieve full-suite artifacts (including failed jobs):
+
+```sh
+automation-workflow ci artifacts_download full -- --mode latest-wait --wait-timeout 7200
+automation-workflow ci artifacts_verify
+automation-workflow ci artifacts_report
+```
+
+The default download profiles **remain** smoke and regression. A full run can
+take longer than the downloader's default 30-minute polling timeout; set
+`--wait-timeout` accordingly. Both providers upload full-suite evidence on
+failure. Only the trusted integration branch runs the privileged full jobs.
