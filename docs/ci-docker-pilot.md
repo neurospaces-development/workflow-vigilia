@@ -31,31 +31,34 @@ The timestamp assertions use a reproducible reference time:
 `FAKETIME="@2025-10-11 11:38:32"`. The AI-token tests exercise local storage
 using synthetic tokens; they do not call the external OpenAI API.
 
-Four **advanced harness modules** are being added for diagnostic CI/CD
-execution, without modifying the original test specifications:
+The four **advanced harness modules** have now been executed on both CI/CD
+platforms. Three pass on both providers; the Docker-role module requires the
+socket and builder compatibility corrections described below:
 
 - `40_workflow-automator/30_specific-features-cd.t` (9 enabled, 1 disabled):
   includes tmux and SSH from the test container to itself;
 - `40_workflow-automator/40_remote_script_execution/summary.yml` (4):
-  uses `Docker::Remote`, so commands without a remote command user execute
-  **on the CI job host**, not automatically inside the Docker container;
+  uses `Docker::Remote`, which distinguishes host-side preparer commands
+  from commands sent to the container; its Dockerfile provisions the source
+  checkout under `/home/neurospaces/projects/...` **inside the image**;
 - `40_workflow-automator/44_roles/10_docker/summary.yml` (5):
   asks for shared Docker-daemon access using `/var/run/docker.sock`, which
   is not automatically available with GitLab's TLS Docker-in-Docker;
 - `40_workflow-automator/50_bash_completion/summary.yml` (30):
-  also uses `Docker::Remote`, with the same distinction between host-side
-  and container-side command execution.
+  also uses `Docker::Remote`; its container-internal source checkout and
+  SSH execution have now passed on both providers.
 
-The suite now lists **22 modules and 149 enabled command tests**: 101
-verified on both providers and 48 experimental assertions pending hosted
-validation. Three additional assertions are explicitly disabled. Failures
-in the four new modules are plausible and should be diagnosed using their
-independent reports, not treated as proof of product defects. In particular,
-GitHub's runner account and GitLab's `vigilia-ci` account do not necessarily
-have the `/home/neurospaces/...` checkout paths used by some command
-specifications. GitLab's Docker-in-Docker daemon also does not expose the
-host's Unix socket by default. No assertion has been skipped to conceal
-these prerequisites.
+The suite lists **22 modules and 149 enabled command tests**. At revision
+`83d6ac6ffa38e5fc58ebd9c3874a72bda477df14`, **21 modules / 144 enabled
+assertions passed** on both platforms. The remaining five assertions belong
+to `44_roles/10_docker`, which fails for different reasons on each provider.
+Three assertions elsewhere in the suite remain explicitly disabled.
+
+The `/home/neurospaces/projects/...` checkout is intentionally populated
+**inside** the Docker image; it is not supposed to be present on the CI job
+host. The Docker-role failure instead concerns the daemon socket and an
+exact-output expectation for the Docker builder. Neither failure is evidence
+that the internal checkout path is wrong.
 
 See [Test specification execution prerequisites](test-specification-prerequisites.md)
 for the full module inventory, infrastructure requirements, and modules not
@@ -173,13 +176,14 @@ Docker logs.
 ## GitLab CI/CD
 
 The `vigilia-docker-pilot` job runs on a GitLab.com **privileged, ephemeral**
-`saas-linux-small-amd64` runner. It uses `docker:29.1.3-dind` with TLS on
+`saas-linux-small-amd64` runner. It uses `docker:28.5.2-dind` with TLS on
 `tcp://docker:2376` and a root-owned Ubuntu 24.04 job container. The job
-installs Ubuntu's `docker.io` CLI and checks that it is version 29.1.3,
-matching the pinned daemon release. If Ubuntu upgrades the CLI, the pilot
-fails with an explicit version-mismatch diagnostic instead of silently using
-an incompatible Docker API. Update the client and daemon together in that
-case.
+installs Ubuntu's `docker.io` CLI and checks that it is version 29.1.3.
+Docker Engine 28.5.2 supports both this job-container CLI and the **Docker
+20.10 CLI inside the Docker-role test image**. Docker Engine 29 rejects the
+older nested client (its minimum supported API is 1.44). If Ubuntu upgrades
+the job-container CLI, the pilot fails with an explicit diagnostic until the
+version compatibility is reassessed.
 
 The job creates an unprivileged account for the test harness. The client TLS
 credentials are copied to that account's private home directory, **outside
@@ -200,11 +204,15 @@ addresses are **not** made portable to DinD by this pilot override.
 
 The GitLab DinD daemon has a different filesystem and network namespace from
 the job container. Basic `docker build`, `docker run` and `docker exec` calls
-can work, but tests using host bind mounts, Docker socket sharing, or direct
-container IP access may need changes. Do not expose the DinD TLS key to tested
-containers or untrusted code. The module suite does not modify Vigilia
-harness semantics or existing Dockerfiles; diagnose new module failures
-using the per-module logs.
+work. Socket-sharing is implemented by inspecting the socket group **on the
+Docker daemon**, using a short-lived helper container based on the test image;
+it no longer runs `stat /var/run/docker.sock` in the CI job container, where
+that socket does not exist. The Docker-role image sets `DOCKER_BUILDKIT=0` to
+preserve the exact legacy build output currently asserted by its test
+specification. These are harness/environment compatibility accommodations, not
+changes to the test assertions. Sharing the daemon socket confers powerful
+access and must remain limited to the disposable trusted-branch CI runner.
+The DinD TLS client key is not mounted into tested containers.
 
 ## Validation and evidence
 

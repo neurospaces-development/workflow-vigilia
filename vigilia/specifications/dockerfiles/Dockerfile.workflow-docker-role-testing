@@ -89,6 +89,12 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     docker.io
 
+# The Docker-role assertions currently verify Docker's historical build output
+# ("Successfully tagged ..."). Use that builder inside this test container
+# regardless of the hosted runner's BuildKit defaults. The host-side harness
+# remains free to use BuildKit when constructing the container image.
+ENV DOCKER_BUILDKIT=0
+
 # Set up libfaketime globally
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1
 

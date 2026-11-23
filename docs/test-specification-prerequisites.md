@@ -57,15 +57,19 @@ second copy of the specification or the definition of the final `full` suite.
 
 An unsuccessful pipeline alone cannot distinguish the last three cases.
 
-## Hosted Docker suite: 22 modules (18 verified, 4 experimental)
+## Hosted Docker suite: 22 modules (21 verified, one requiring correction)
 
 The first **18 modules / 101 enabled command tests** passed on GitHub
 Actions and GitLab CI/CD at revision
-`a363438a99c451a6089888d594284260b856dace`. Patch 0044 adds **four
-experimental modules / 48 enabled assertions**. Three other assertions
-are explicitly disabled (two in the verified group and one in the new
-group). The experimental modules have not yet been validated on hosted
-runners.
+`a363438a99c451a6089888d594284260b856dace`. Patch 0044 added **four
+advanced modules / 48 enabled assertions**. Three other assertions are
+explicitly disabled (two in the original group and one in the new group).
+The advanced modules were executed at revision
+`83d6ac6ffa38e5fc58ebd9c3874a72bda477df14`: three passed on both
+providers, giving **21 passing modules / 144 enabled assertions**. The
+Docker-role module failed due to a legacy build-output expectation on
+GitHub and socket provisioning on GitLab; the five Docker-role assertions
+still require cross-platform validation.
 
 | Specification | Tests enabled | Specific technical prerequisites | Status |
 |---|---:|---|---|
@@ -88,20 +92,21 @@ runners.
 | `40_workflow-automator/80_install-testing/10_debian/summary.yml` | 2 | `Dockerfile.workflow-install-testing-debian`; Debian Bookworm image, apt repositories and package installation | Verified hosted |
 | `40_workflow-automator/80_install-testing/20_ubuntu/summary.yml` | 2 | `Dockerfile.workflow-install-testing-ubuntu`; Ubuntu 24.04 image, apt repositories and package installation | Verified hosted |
 
-The four newly selected advanced-harness modules are experimental:
+The four advanced-harness modules have been executed in CI/CD:
 
 | Specification | Enabled command tests | Additional prerequisite | CI status |
 |---|---:|---|---|
-| `40_workflow-automator/30_specific-features-cd.t` | 9 (1 disabled) | tmux, sshpass/sshd, container self-SSH, container IP substitution | Pending hosted |
-| `40_workflow-automator/40_remote_script_execution/summary.yml` | 4 | `Docker::Remote`, local checkout and command availability on the CI job host, SSH/scp to container | Pending hosted |
-| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker-daemon access from inside a test container; Unix socket versus GitLab TLS DinD | Pending hosted |
-| `40_workflow-automator/50_bash_completion/summary.yml` | 30 | `Docker::Remote`, local checkout and executable `feature-testing-workflow` on CI job host | Pending hosted |
+| `40_workflow-automator/30_specific-features-cd.t` | 9 (1 disabled) | tmux, sshpass/sshd, container self-SSH, container IP substitution | Verified hosted |
+| `40_workflow-automator/40_remote_script_execution/summary.yml` | 4 | `Docker::Remote`; source checkout is provided inside its Docker image; SSH/scp and host-side preparer dispatch | Verified hosted |
+| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker socket; daemon-side socket group; Docker 20.10 client compatibility; legacy build output | Failed on both; CI fixes pending |
+| `40_workflow-automator/50_bash_completion/summary.yml` | 30 | `Docker::Remote`; `feature-testing-workflow` and source checkout are provided inside the Docker image | Verified hosted |
 
 **Do not silently skip failures in these modules.** The serial suite records
-one report per module and continues after a failure. The first run is meant
-to establish which environment assumptions need addressing on each provider.
-The goal is the same specifications on both platforms, not separate test
-variants.
+one report per module and continues after a failure. The same specifications
+are used on both platforms, not provider-specific test variants. The source
+checkout under `/home/neurospaces/projects/...` is deliberately created by
+the Dockerfile **inside the container**; it is not a path expected to exist
+in the CI job container or GitHub runner filesystem.
 
 The two distribution tests run installation **within the image** and then
 check the installed `feature-testing-workflow` configuration. Their need for
@@ -141,9 +146,12 @@ Docker testing. They remain part of unfiltered `vigilia` discovery.
 - GitLab's former fixed `172.18.0.0/16` Docker subnet conflicted with another
   network. Patch 0035 introduced `VIGILIA_DOCKER_NETWORK_SUBNET=auto` and
   preparation error handling; this was an infrastructure-compatibility issue.
-- GitLab Docker-in-Docker exposes the daemon at `tcp://docker:2376` while
-  `44_roles/10_docker` requests a Unix socket mount. A passing ordinary Docker
-  module does not prove the socket-sharing feature works there.
+- GitLab Docker-in-Docker exposes the client connection at `tcp://docker:2376`,
+  but the daemon's Unix socket exists in the **DinD service container**, not
+  the CI job container. Socket group inspection must run on the daemon side;
+  Docker Engine 28 is used to support the old Docker 20.10 CLI installed in
+  the nested test image. The Docker-role fixture also relies on legacy
+  `docker build` output; `DOCKER_BUILDKIT=0` makes that behavior deterministic.
 - `41_docker_creator_output_formats.t` and `50_merges.t` depend on an existing
   `vigilia-image`; running them in isolation without the image is an
   *unsatisfied prerequisite*, not an assertion about product correctness.

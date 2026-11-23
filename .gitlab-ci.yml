@@ -105,11 +105,14 @@ vigilia-docker-pilot:
   timeout: 90 minutes
   rules:
     - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
-  # Ubuntu 24.04 currently installs docker.io client 29.1.3. Keep the
-  # dedicated TLS DinD daemon on the same release; Docker 24.0.5 supports
-  # only API <= 1.43, while Docker 29.1.3 requires API >= 1.44.
+  # Ubuntu 24.04 currently supplies Docker CLI 29.1.3, which can talk
+  # to Engine 28.5.2 (API 1.51). The Docker-role test image additionally
+  # installs Debian Bookworm's Docker 20.10 CLI (API 1.41). Engine 29
+  # rejects that older client (minimum API 1.44), whereas Engine 28
+  # supports both clients. Pin this service to Engine 28 until the test
+  # image is updated; retain the existing TLS configuration.
   services:
-    - name: docker:29.1.3-dind
+    - name: docker:28.5.2-dind
       alias: docker
       variables:
         HEALTHCHECK_TCP_PORT: "2376"
@@ -157,12 +160,13 @@ vigilia-docker-pilot:
       chmod 0440 /etc/sudoers.d/90-vigilia-ci
       chown -R vigilia-ci:vigilia-ci "$CI_PROJECT_DIR"
 
-      # Detect a future Ubuntu docker.io upgrade before polling an
-      # incompatible daemon. Keep the client and pinned DinD release aligned.
+      # Detect a future Ubuntu docker.io upgrade before contacting DinD.
+      # Client 29.1.3 and daemon 28.5.2 have overlapping API versions;
+      # the older CLI in the nested test image also requires Engine 28.
       docker_client_version=$(docker --version)
       printf '%s\n' "$docker_client_version" > "$CI_RESULTS_DIR/docker-client-version.log"
       if [[ ! $docker_client_version =~ (^|[[:space:]])29[.]1[.]3, ]]; then
-        printf 'Expected Docker CLI 29.1.3 for docker:29.1.3-dind; got: %s\n' \
+        printf 'Expected Docker CLI 29.1.3 (compatible with docker:28.5.2-dind); got: %s\n' \
           "$docker_client_version" >&2
         exit 2
       fi
