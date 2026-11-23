@@ -332,3 +332,13 @@ automation-workflow ci artifacts_download full -- --mode latest-wait --wait-time
 automation-workflow ci artifacts_verify
 automation-workflow ci artifacts_report
 ```
+
+### Focused-run efficiency
+
+The opt-in `ci/docker-suite.sh` runs each selected module separately to retain
+per-module report and container logs. Each invocation now passes
+`ci/test.sh --focused`, suppressing offline CI self-tests (CPAN, REST,
+Docker network and adapter regression checks) that need not run per module.
+It still builds on the first run (unless `--test-only`), executes `make check`,
+validates native reports and preserves nonzero exit status. The routine full
+CI quality gate never uses `--focused`.

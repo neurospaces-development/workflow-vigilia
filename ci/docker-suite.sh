@@ -122,7 +122,7 @@ for module in "${modules[@]}"; do
     selector="${module//./[.]}\$"
     printf '%s\n' "$selector" > "$module_root/selector.txt"
 
-    args=()
+    args=(--focused)
     if (( test_only || index > 1 )); then
         args+=(--test-only)
     fi

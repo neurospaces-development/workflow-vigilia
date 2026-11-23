@@ -3,17 +3,24 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: VIGILIA_TEST_PROFILE=smoke|regression|full %s [--test-only]\n' "$0" >&2
+    printf 'Usage: VIGILIA_TEST_PROFILE=smoke|regression|full %s [--test-only] [--focused]\n' "$0" >&2
     printf '   or: VIGILIA_REGEX_SELECTOR=REGEX %s [--test-only]\n' "$0" >&2
 }
 
 build=1
-case ${1:-} in
-    '') ;;
-    --test-only) build=0; shift ;;
-    *) usage; exit 2 ;;
-esac
-(( $# == 0 )) || { usage; exit 2; }
+focused=0
+while (( $# )); do
+    case $1 in
+        --test-only) build=0 ;;
+        --focused) focused=1 ;;
+        *) usage; exit 2 ;;
+    esac
+    shift
+done
+if (( focused )) && [[ -n ${VIGILIA_TEST_PROFILE:-} ]]; then
+    echo '--focused requires explicit selection, not a CI profile' >&2
+    exit 2
+fi
 # Profile selection is opt-in for the shared CI interface. The previous
 # explicit-regex invocation remains supported for focused reruns and probes.
 case "${VIGILIA_TEST_PROFILE:-}" in
@@ -99,18 +106,16 @@ run_step() {
     return "$rc"
 }
 
-# Unit-test the strict CPAN installer without installing any modules.
-run_step cpan-regression bash ci/tests/test-cpan-install-strict.sh
-
-# Exercise GitHub/GitLab REST discovery with a loopback API (no network access).
-run_step artifact-regression python3 ci/tests/test-download-artifacts.py
-run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
-
-# Exercise Docker network allocation and failures without needing a daemon.
-run_step docker-network-regression python3 ci/tests/test-docker-network.py
-
-# Exercise serial Docker module selection and per-module evidence offline.
-run_step docker-suite-regression python3 ci/tests/test-docker-suite.py
+# The full CI quality gate runs these regression stages once. Focused module
+# investigations are intentionally narrower: each still builds (unless
+# --test-only), executes make check and validates its own native report.
+if (( ! focused )); then
+    run_step cpan-regression bash ci/tests/test-cpan-install-strict.sh
+    run_step artifact-regression python3 ci/tests/test-download-artifacts.py
+    run_step artifact-workflow python3 ci/tests/test-workflow-artifacts.py
+    run_step docker-network-regression python3 ci/tests/test-docker-network.py
+    run_step docker-suite-regression python3 ci/tests/test-docker-suite.py
+fi
 
 if (( build )); then
     run_step sudo-check sudo -n true
@@ -123,7 +128,9 @@ if (( build )); then
 fi
 
 # The native report test runs vigilia itself and needs installed CPAN modules.
-run_step report-counters bash ci/tests/test-report-counters.sh
+if (( ! focused )); then
+    run_step report-counters bash ci/tests/test-report-counters.sh
+fi
 
 # These are generated Automake outputs. Clear them only immediately before
 # this run so that early build failures cannot collect stale evidence.

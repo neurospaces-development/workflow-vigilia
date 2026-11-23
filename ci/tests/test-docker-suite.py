@@ -18,7 +18,7 @@ MODULES = ('20_vigilia/30_docker.t',
            '20_vigilia/12_error_checking/summary.yml')
 FAKE_TEST = '''#!/usr/bin/env bash
 set -euo pipefail
-printf '%s|%s|%s|%s\\n' "$VIGILIA_REGEX_SELECTOR" "${1:-<build>}" \
+printf '%s|%s|%s|%s\\n' "$VIGILIA_REGEX_SELECTOR" "$*" \
     "$CI_RESULTS_DIR" "${VIGILIA_TEST_PROFILE:-<unset>}" >> "$FAKE_TEST_LOG"
 mkdir -p "$CI_RESULTS_DIR/run.fixture/report"
 printf 'tested\\n' > "$CI_RESULTS_DIR/run.fixture/report/report.yml"
@@ -83,8 +83,8 @@ class DockerSuiteTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = (self.root / 'test.log').read_text().splitlines()
         self.assertEqual(len(lines), 2)
-        self.assertIn('20_vigilia/30_docker[.]t$|<build>|', lines[0])
-        self.assertIn('20_vigilia/12_error_checking/summary[.]yml$|--test-only|', lines[1])
+        self.assertIn('20_vigilia/30_docker[.]t$|--focused|', lines[0])
+        self.assertIn('20_vigilia/12_error_checking/summary[.]yml$|--focused --test-only|', lines[1])
         self.assertTrue(all(line.endswith('|<unset>') for line in lines))
         summary = (self.suite_run() / 'summary.tsv').read_text()
         self.assertEqual(summary.count('\tPASS\t0\t'), 2)
@@ -108,7 +108,7 @@ class DockerSuiteTests(unittest.TestCase):
     def test_test_only_option_disables_build_for_every_module(self):
         proc = self.invoke('--test-only')
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertTrue(all('|--test-only|' in line for line in
+        self.assertTrue(all('--test-only|' in line for line in
                             (self.root / 'test.log').read_text().splitlines()))
 
     def test_empty_list_rejected_before_test_execution(self):
