@@ -57,19 +57,21 @@ second copy of the specification or the definition of the final `full` suite.
 
 An unsuccessful pipeline alone cannot distinguish the last three cases.
 
-## Hosted Docker suite: 22 modules (21 verified, one requiring correction)
+## Hosted Docker suite: 22 modules (GitLab verified; GitHub build timeout)
 
-The first **18 modules / 101 enabled command tests** passed on GitHub
-Actions and GitLab CI/CD at revision
-`a363438a99c451a6089888d594284260b856dace`. Patch 0044 added **four
-advanced modules / 48 enabled assertions**. Three other assertions are
-explicitly disabled (two in the original group and one in the new group).
-The advanced modules were executed at revision
-`83d6ac6ffa38e5fc58ebd9c3874a72bda477df14`: three passed on both
-providers, giving **21 passing modules / 144 enabled assertions**. The
-Docker-role module failed due to a legacy build-output expectation on
-GitHub and socket provisioning on GitLab; the five Docker-role assertions
-still require cross-platform validation.
+At revision `92ec1dad5dc630f8e3bfbecb020804fd7ff3bb03`, **all 22
+modules / 149 enabled assertions passed on GitLab CI/CD**. GitHub Actions
+passed 21 modules / 144 enabled assertions, with the five-assertion
+Docker-role module failing. Three assertions elsewhere in the knowledge base
+are explicitly disabled and are not included in the 149 enabled assertions.
+
+The Docker-role test now works with GitLab's remote daemon socket and nested
+Docker client. On GitHub, the first Docker-role assertion timed out after
+its original **60-second** limit, while the image was still installing Debian
+packages. Subsequent assertions failed because the image had not been built.
+Its timeout is now **900 seconds** to allow a cold build on hosted runners;
+this adjustment does not modify its expected output or skip any test. Hosted
+GitHub validation of the new limit is pending.
 
 | Specification | Tests enabled | Specific technical prerequisites | Status |
 |---|---:|---|---|
@@ -98,7 +100,7 @@ The four advanced-harness modules have been executed in CI/CD:
 |---|---:|---|---|
 | `40_workflow-automator/30_specific-features-cd.t` | 9 (1 disabled) | tmux, sshpass/sshd, container self-SSH, container IP substitution | Verified hosted |
 | `40_workflow-automator/40_remote_script_execution/summary.yml` | 4 | `Docker::Remote`; source checkout is provided inside its Docker image; SSH/scp and host-side preparer dispatch | Verified hosted |
-| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker socket; daemon-side socket group; Docker 20.10 client compatibility; legacy build output | Failed on both; CI fixes pending |
+| `40_workflow-automator/44_roles/10_docker/summary.yml` | 5 | Shared Docker socket; daemon-side socket group; nested Docker 20.10 client; legacy build output; cold-build timeout | GitLab verified; GitHub timeout fix pending |
 | `40_workflow-automator/50_bash_completion/summary.yml` | 30 | `Docker::Remote`; `feature-testing-workflow` and source checkout are provided inside the Docker image | Verified hosted |
 
 **Do not silently skip failures in these modules.** The serial suite records

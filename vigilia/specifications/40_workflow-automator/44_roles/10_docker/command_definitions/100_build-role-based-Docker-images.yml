@@ -5,6 +5,8 @@ command_tests:
     description: Can we build role based Docker images?
     read: |+2
       Successfully tagged docker_source_code_image:latest
-    timeout: 60
+    # A cold image build installs many Debian packages; hosted runners can
+    # require several minutes before the final image tag is emitted.
+    timeout: 900
     white_space: convert seen 0a to 0d 0a newlines
 description: Can we build role based Docker images?
