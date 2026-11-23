@@ -597,7 +597,7 @@ def main(argv=None):
 
     profiles = list(dict.fromkeys(args.profile or []))
     if not selectors:
-        profiles = list(dict.fromkeys(cfg.get('profiles', ['smoke', 'regression'])))
+        profiles = list(dict.fromkeys(cfg.get('profiles', ['full'])))
     discovered = {}
     for provider in providers:
         discovered[provider] = choose_artifacts(provider, objects[provider], chosen[provider],

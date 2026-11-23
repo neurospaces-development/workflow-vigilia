@@ -17,13 +17,12 @@ material for documentation conversion.
 | `regression` | `ci:regression` | No Docker; includes smoke plus broader checks |
 | `full` | No tag filter | Dedicated disposable runner and Docker daemon |
 
-The full profile is never enabled implicitly. It requires
-`VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1` and a genuinely isolated
-execution environment. Dedicated `full` jobs are configured on the trusted
-CI integration branch for both hosted providers; their initial execution is
-**diagnostic until verified by native reports**. Do not run it on shared
-workstations or unrestricted/untrusted CI jobs. The suite contains fixed
-container names and Docker cleanup operations.
+The full profile is not enabled implicitly in local `ci/test.sh` runs. It
+requires `VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1` and a disposable
+execution environment. The full CI jobs passed all **36 modules / 256 enabled
+assertions** on both providers at revision `43bb8aa85c76` and are now the
+**only automatic jobs on trusted branch pushes**. Do not run the full suite
+against a shared Docker daemon; tests reuse container and image names.
 
 After configuring and installing dependencies, run:
 
@@ -121,19 +120,23 @@ settings, a successful test run, and failing build, test, and install steps.
 The `cpan-regression.log` and `.exit-code.txt` files are retained in the
 run evidence. This smoke test also runs with `--test-only`.
 
-## Serial Docker module suite
+## Focused Docker module suite (opt-in)
 
-Both hosted CI providers run `ci/docker-suite.sh` in a disposable Docker-capable
-runner for the modules listed in `ci/docker-suite.modules`. The modules are
-selected by their source paths, **not** by `ci:` tags; the same specifications
-remain part of an unfiltered local `bin/vigilia` execution. The suite invokes
-`ci/test.sh` for each module independently, builds/installs only on the first
-run, collects module-specific reports and Docker diagnostics, and returns a
-failure if **any** module fails. See `docs/ci-docker-pilot.md` for configuration,
-known Docker-in-Docker differences and per-module evidence layout.
+`ci/docker-suite.modules` is intentionally **empty**. The full CI job already
+executes the entire knowledge base. Use `ci/docker-suite.sh` only for an
+explicitly selected investigation, by passing one or more `--module PATH`
+arguments, setting `VIGILIA_DOCKER_MODULES` to comma-separated paths, or
+setting `VIGILIA_DOCKER_MODULES_FILE` to an alternative newline-delimited file.
+A missing selection is an error: the focused job must never silently report
+success without running tests. The same specifications remain in the full
+suite; neither list nor tag assignment affects full discovery.
 
-These Docker jobs remain restricted to the trusted integration branch. They
-are not a substitute for eventual full-suite verification.
+The focused runner executes modules serially, isolates their evidence, and
+continues after failures; it uses `ci/test.sh` as its quality gate. GitHub
+provides focused runs via the manual **Run workflow** input; GitLab provides
+a manual Docker job in a manually started pipeline. On routine trusted pushes,
+only `full` runs. GitHub retains a single regression job on pull requests
+as a non-Docker check. See `docs/ci-docker-pilot.md` for examples.
 
 ## Evidence and exit status
 
@@ -158,12 +161,11 @@ final evidence collection. CI platform artifact upload is configured separately.
 
 ## Full-suite safety and execution
 
-The unfiltered `full` profile is configured as a **separate, privileged hosted
-job on the trusted integration branch**, not as a default profile or as an
-extension of the smoke/regression matrix. Its selection is automatic, but
-its successful execution must be demonstrated on both providers before
-claiming complete CI coverage. Some specifications use fixed container names,
-shared images and cleanup operations; use an isolated, disposable runner and
-a dedicated Docker daemon, never a shared workstation. See
+The unfiltered `full` profile is the **authoritative automatic CI job on
+trusted `master` and `ci/regression-integration` pushes**, not an extension of
+the smoke/regression matrix. Both providers have executed it successfully.
+Some specifications use fixed container names, shared images and cleanup
+operations; use an isolated, disposable runner and a dedicated Docker daemon,
+never a shared workstation. See
 [CI/CD architecture](../docs/ci-cd-architecture.md) and
 [execution prerequisites](../docs/test-specification-prerequisites.md).

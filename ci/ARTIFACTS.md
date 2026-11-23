@@ -23,7 +23,9 @@ python3 ci/download-artifacts.py report
 ```
 
 `latest-successful` (default) selects the newest *common* completed successful
-revision available on both providers. `latest` considers failed executions too,
+revision available on both providers. With no profile argument, downloads now
+select **`full`**, the authoritative automatic job; older smoke, regression,
+and focused Docker artifacts remain available using `--profile`. `latest` considers failed executions too,
 provided their artifacts exist. Both select an already completed revision;
 they may return an **older** revision if the latest pipelines are still running.
 
@@ -149,11 +151,12 @@ regression suite, preserving separate stage logs.
 
 ## Flexible job and Docker-pilot selection
 
-The original default is unchanged: `download` retrieves the smoke and
-regression artifacts for the latest revision on which **both** platforms have
-successful completed pipelines. Docker pilot jobs are deliberately excluded
-from that default. Docker job failures may make a complete pipeline fail, so
-use `--mode latest` or an explicit pipeline/run ID when gathering diagnostics.
+The default download profile is `full`, because routine trusted-branch
+pipelines no longer repeat the smoke, regression or focused Docker subset.
+Use `--profile smoke`, `--profile regression`, or `--profile docker` for
+historical or explicitly requested jobs; the provider's latest run may not
+contain those artifacts. For failed full pipelines use `--profile full
+--mode latest-wait` or an explicit pipeline/run ID to retain diagnostics.
 
 The new `inventory` operation queries the jobs/artifacts available in a
 specific completed run. Its output contains the provider-specific IDs,

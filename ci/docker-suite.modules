@@ -1,30 +1,7 @@
-# Docker-backed modules run one at a time, in this order.
-# Paths are relative to vigilia/specifications/; no regex patterns or tags.
-# The first eighteen modules passed on GitHub Actions and GitLab CI/CD at
-# revision a363438a99c451a6089888d594284260b856dace.
-# The final four exercise SSH, Docker::Remote and shared Docker-daemon access;
-# these are diagnostic candidates, not yet expected to pass unchanged.
-20_vigilia/30_docker.t
-20_vigilia/12_error_checking/summary.yml
-40_workflow-automator/15_error-pages/summary.yml
-40_workflow-automator/29_config-loader-errors/summary.yml
-40_workflow-automator/31_specific-features-export-variables/summary.yml
-40_workflow-automator/28_command_array_concatenation/summary.yml
-40_workflow-automator/36_specific-features-timestamps/summary.yml
-40_workflow-automator/37_specific-features-background/summary.yml
-40_workflow-automator/32_specific-features-export-sh/summary.yml
-40_workflow-automator/33_specific-features-export-times/summary.yml
-40_workflow-automator/27_schedule/summary.yml
-40_workflow-automator/34_specific-features-annotations.t
-40_workflow-automator/38_rename_project/summary.yml
-40_workflow-automator/39_specific_features_ai/summary.yml
-40_workflow-automator/42_use-dot-local-bin/summary.yml
-40_workflow-automator/46_builtin/summary.yml
-40_workflow-automator/80_install-testing/10_debian/summary.yml
-40_workflow-automator/80_install-testing/20_ubuntu/summary.yml
-
-# Advanced harnesses: run independently and retain failure evidence.
-40_workflow-automator/30_specific-features-cd.t
-40_workflow-automator/40_remote_script_execution/summary.yml
-40_workflow-automator/44_roles/10_docker/summary.yml
-40_workflow-automator/50_bash_completion/summary.yml
+# Optional list of independently executed Docker modules, relative to
+# vigilia/specifications/. Empty by default: the full CI profile already
+# executes the entire knowledge base and must not repeat these tests.
+#
+# For isolated investigations, add one pathname per line in a temporary list
+# and set VIGILIA_DOCKER_MODULES_FILE, or invoke ci/docker-suite.sh --module.
+# Manual CI jobs accept VIGILIA_DOCKER_MODULES (comma-separated paths).

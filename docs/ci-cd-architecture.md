@@ -2,8 +2,9 @@
 
 This document describes the **implemented CI and verification infrastructure**
 for `workflow` and `vigilia` as configured in this repository after the
-introduction of the hosted `full` jobs. It is an architecture and operating
-reference, not a proposal or a claim that the new full jobs already pass.
+introduction of the hosted `full` jobs and the subsequent removal of
+redundant automatic subset jobs. Both hosted full jobs passed at revision
+`43bb8aa85c76` (36 modules, 256 enabled assertions each).
 The current pipeline builds, installs, tests, validates and publishes evidence;
 it does **not** deploy software or define repository branch-protection rules.
 
@@ -16,8 +17,8 @@ it does **not** deploy software or define repository branch-protection rules.
    `bin/vigilia`: there is no second `full` module list. Execution results can
    differ when local and hosted environments differ.
 3. The `smoke` and `regression` tag selections are fast, deliberately smaller
-   feedback loops. The serial Docker module list is a diagnostic subset, **not**
-   a substitute for `full`.
+   feedback loops. Focused Docker testing is explicitly requested, not
+   automatically repeated when the full suite already runs.
 4. The same `ci/test.sh`, Automake harness, `vigilia` assertions and native
    reporting contract apply on both CI providers. Runner provisioning differs.
 5. Failed runs must retain diagnostic evidence. An artifact's integrity or
@@ -88,28 +89,30 @@ These are the **currently configured** jobs, not an abstract future design:
 
 | Profile / job | GitHub Actions | GitLab CI/CD | Selection | Runtime |
 | --- | --- | --- | --- | --- |
-| `smoke` | `regression-tests` matrix | `vigilia-regression` matrix | `--tags ci:smoke` | Non-Docker; native `ci/test.sh` |
-| `regression` | Same matrix | Same matrix | `--tags ci:regression` | Non-Docker; native `ci/test.sh` |
-| Docker subset | `docker-pilot` | `vigilia-docker-pilot` | Exact paths from `ci/docker-suite.modules`, one at a time | Docker-enabled `ci/docker-suite.sh` |
+| `smoke` | Local (`ci/test.sh`) | `vigilia-regression` (manual) | `--tags ci:smoke` | Fast subset, not scheduled on pushes |
+| `regression` | `regression-tests` (PRs) | Same manual matrix | `--tags ci:regression` | Non-Docker; native `ci/test.sh` |
+| Focused Docker (manual) | `docker-pilot` | `vigilia-docker-pilot` | Explicit paths from job input or `--module` | Docker-enabled `ci/docker-suite.sh` |
 | `full` | `full-tests` | `vigilia-full` | No tag exclusions; module regex defaults to `.*` | One unfiltered `ci/test.sh` run |
 
-The smoke and regression jobs use 60-minute job timeouts. Docker and full
-jobs use 90-minute job timeouts. Job artifacts are retained for 30 days when
-the runner is able to upload them.
+Smoke/regression jobs have 60-minute timeouts, and focused Docker and full
+jobs have 90-minute timeouts. Artifacts are retained for 30 days when the
+runner can upload them.
 
-**GitHub:** the workflow is triggered by pushes to `master` and
-`ci/regression-integration`, pull requests targeting `master`, and manual
-`workflow_dispatch`. Smoke/regression execute for those events. Docker and
-full run **only** on `ci/regression-integration`, excluding pull requests.
-The workflow requests `contents: read` and checks out source without retaining
-credentials in the working tree.
+**GitHub:** Trusted pushes to `master` and `ci/regression-integration` execute
+**only `full`**, not a duplicate Docker subset or profile matrix. Pull
+requests to `master` execute one non-Docker regression job, without
+privileged Docker tests. A manual `workflow_dispatch` with a nonempty
+`docker_modules` input runs the focused Docker job, without the full job.
+The workflow requests `contents: read` and checks out without persisted
+credentials.
 
-**GitLab:** top-level workflow rules select the default branch and
-`ci/regression-integration`. Smoke/regression run on either branch. Docker and
-full have an additional rule restricting them to `ci/regression-integration`.
-The GitLab full job **extends** the Docker job's bootstrap and runs the
-unfiltered profile through `VIGILIA_DOCKER_EXECUTION=full`. There is only a
-`test` stage; this configuration contains no deployment or release stage.
+**GitLab:** Trusted pushes to the default branch and
+`ci/regression-integration` execute **only `vigilia-full`**. A developer may
+start a manual (web) pipeline on a development branch and run the optional
+`vigilia-docker-pilot` job with `VIGILIA_DOCKER_MODULES` set to selected paths.
+Smoke/regression remain manually available, but are not automatic duplicates.
+The full job **extends** the Docker bootstrap and overrides its manual rule,
+using `VIGILIA_DOCKER_EXECUTION=full`. There is only a `test` stage.
 
 Branch protection / required-check policies are administered at the provider
 and are **not** established merely by these YAML definitions. An experimental
@@ -128,19 +131,20 @@ full failure is still a failing CI job; it is not silently tolerated.
   in the full job.
 - The two CI subset tags are independent selectors; the directory named
   `25_smoke` is **not** automatically assigned to `ci:smoke`.
-- The Docker suite is path-selected and serial. It can be overridden locally
-  with `VIGILIA_DOCKER_MODULES_FILE`. One `ci/test.sh` execution and report are
-  generated per module; it continues after failures and returns failure if
-  **any** module failed. It builds/installs only for the first module.
+- The focused Docker suite is path-selected and serial, but its committed
+  module file is intentionally empty. Selection must be explicit through
+  `--module PATH`, comma-separated `VIGILIA_DOCKER_MODULES`, or an alternate
+  `VIGILIA_DOCKER_MODULES_FILE`; no empty runs are accepted. One `ci/test.sh`
+  execution/report is generated per selected module, with build/install once.
 - The full run is a **single** `vigilia` invocation; this matters for module
   preparation/reparation state and images created by earlier modules. Some
   modules intentionally have no individual command assertions, so the serial
   suite's positive-test-count gate is not valid for running them alone.
 
-As of revision `6d00bee29480b91157a1db6a858e818bec7b4613`, the 22-module
-Docker subset passed **149 enabled assertions** on **both** providers.
-The newly configured 36-module `full` jobs are **pending hosted validation**;
-no passing result should be inferred from the Docker subset's success.
+At revision `43bb8aa85c76e45c6c035008eab2fafcbfa6f6c3`, the **full
+profile passed all 36 modules and 256 enabled assertions on both providers**.
+The previous Docker subset (22 modules, 149 enabled assertions) passed at
+`6d00bee29480` but is no longer an automatic redundant CI job.
 For exact module prerequisites and disabled tests, see
 [test-specification-prerequisites.md](test-specification-prerequisites.md).
 
@@ -216,8 +220,9 @@ GitHub and GitLab independently upload ZIP artifacts. The downloader reads
 provider REST metadata rather than constructing download URLs from guessed
 IDs. The provider/job/profile mapping lives in
 [`ci_artifacts.yml`](../configured-workflows/automation-configuration-data/ci_artifacts.yml).
-The default download profiles are `smoke` and `regression`, at the newest
-common **successful** revision; `docker` and `full` are explicit selections.
+The default download profile is now **`full`**, at the newest common
+successful revision. Focused `docker` and historical `smoke`/`regression`
+artifacts require explicit `--profile` selection.
 
 From a checkout at the revision pushed to both providers:
 
@@ -268,8 +273,8 @@ installed binaries match the checkout:
 VIGILIA_TEST_PROFILE=smoke ci/test.sh --test-only
 VIGILIA_TEST_PROFILE=regression ci/test.sh --test-only
 
-# Docker subset (dedicated Docker daemon required):
-ci/docker-suite.sh --test-only
+# Focused Docker subset (dedicated Docker daemon required):
+ci/docker-suite.sh --test-only --module 20_vigilia/30_docker.t
 
 # Complete unfiltered knowledge base (isolated, disposable environment only):
 VIGILIA_TEST_PROFILE=full VIGILIA_ALLOW_FULL=1 ci/test.sh --test-only
@@ -285,9 +290,9 @@ When adding a test or updating infrastructure:
 1. Keep the **specification** as the only authoritative assertion definition;
    documentation/tutorial material must derive from that same committed
    source and revision.
-2. For low-risk CI feedback, add an appropriate `ci:` tag or a verified path
-   to the Docker subset. Do **not** edit `full` selection rules: it discovers
-   new modules automatically.
+2. For focused investigation, pass a selected module path to the manual
+   Docker job. Do **not** edit `full` selection rules: it discovers new modules
+   automatically.
 3. Declare and provision needed Dockerfiles, SSH/tmux facilities, permissions,
    time freezing, network access, images and other prerequisites. Preserve
    existing assertions unless evidence justifies a change.

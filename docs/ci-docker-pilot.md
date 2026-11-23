@@ -1,12 +1,13 @@
-# Hosted Docker module suite
+# Focused Docker module testing (opt-in)
 
-This is the **serial diagnostic Docker subset**, not the entire CI/CD
-architecture. See [CI/CD architecture and operation](ci-cd-architecture.md)
-for provider triggers, quality gates, `full` execution, artifacts and security.
+The **full** hosted CI job now executes the entire knowledge base on every
+trusted branch push. The previous serial Docker suite was used to develop and
+validate the infrastructure; it is preserved for **manually selected modules**,
+not executed by default. See [CI/CD architecture](ci-cd-architecture.md).
 
-Both CI providers execute **the same ordered list of Docker-backed Vigilia
-modules**, defined in [`ci/docker-suite.modules`](../ci/docker-suite.modules).
-The first eighteen modules passed on GitHub Actions and GitLab CI/CD at
+[`ci/docker-suite.modules`](../ci/docker-suite.modules) is now empty apart
+from comments. The following list records the earlier **22-module baseline**,
+not the default CI selection. The first eighteen modules passed at
 revision `a363438a99c451a6089888d594284260b856dace`:
 
 - `20_vigilia/30_docker.t` (3 assertions);
@@ -53,12 +54,11 @@ expected output and allowed it to pass:
   also uses `Docker::Remote`; its container-internal source checkout and
   SSH execution have now passed on both providers.
 
-The suite lists **22 modules and 149 enabled command tests**. At revision
-`6d00bee29480b91157a1db6a858e818bec7b4613`, **all 22 modules and
-all 149 enabled assertions passed on both GitHub Actions and GitLab CI/CD**.
-Three assertions elsewhere in the suite remain explicitly disabled.
-This subset is an established baseline, but it is not evidence that the newly
-configured unfiltered `full` jobs already pass.
+The historical subset comprised **22 modules and 149 enabled command tests**.
+At revision `6d00bee29480b91157a1db6a858e818bec7b4613`, all passed on
+both platforms. The subsequent **unfiltered full job** passed **36 modules
+and 256 enabled assertions** on both platforms at revision `43bb8aa85c76`.
+Thus, repeating the old subset on every push is unnecessary.
 
 The `/home/neurospaces/projects/...` checkout is intentionally populated
 **inside** the Docker image; it is not supposed to be present on the CI job
@@ -79,16 +79,33 @@ If a module fails, the suite records the failure, continues with the next
 module and eventually returns a nonzero exit status. This is intentional:
 CI artifacts must show independent results for all attempted modules.
 
-Change the committed list to expand coverage, one pathname per line relative
-to `vigilia/specifications/`. Blank lines and comments are ignored; entries
-must name actual `.t`, `.module.yml` or `summary.yml` files. For a local
-experiment, set `VIGILIA_DOCKER_MODULES_FILE` to a different list. Do not run
-these specifications on a shared Docker daemon: they reuse names such as
-`vigilia_test_container` and can execute privileged operations in containers.
+For focused development, select paths relative to `vigilia/specifications/`:
 
-The suite is **not** the unfiltered `full` profile. Both jobs remain restricted
-to the trusted `ci/regression-integration` branch, not untrusted merge requests.
-The standard `smoke` and `regression` jobs are unchanged.
+```sh
+# Select one or more modules directly; runs in an isolated Docker environment.
+ci/docker-suite.sh --module 20_vigilia/30_docker.t \
+  --module 40_workflow-automator/27_schedule/summary.yml
+
+# For manual GitHub/GitLab runs, specify comma-separated paths:
+VIGILIA_DOCKER_MODULES='20_vigilia/30_docker.t,40_workflow-automator/27_schedule/summary.yml' \
+  ci/docker-suite.sh
+
+# Alternatively, maintain an untracked newline-delimited list:
+VIGILIA_DOCKER_MODULES_FILE=/tmp/selected-modules.txt ci/docker-suite.sh
+```
+
+Without any selected modules, the focused runner fails before running Docker;
+it does not claim an empty run passed. Paths are checked for existence and
+invalid characters. Do not run these tests on a shared Docker daemon: they
+reuse names such as `vigilia_test_container`.
+
+**GitHub:** Choose **Run workflow** and enter comma-separated paths in
+`docker_modules`; only the focused Docker job runs. **GitLab:** Start a
+pipeline manually using the variable `VIGILIA_DOCKER_MODULES` and run the
+optional `vigilia-docker-pilot` job. These manual invocations can target a
+trusted development branch. On ordinary pushes to trusted branches, only
+the full job runs. GitHub additionally runs one non-Docker regression job for
+pull requests.
 
 ## Evidence layout and local execution
 
@@ -172,7 +189,7 @@ fixed subnet remains the default locally; the GitLab job sets
 
 ## GitHub Actions
 
-The `docker-pilot` job runs on an ephemeral `ubuntu-24.04` VM. Docker is
+The optional `docker-pilot` job runs on an ephemeral `ubuntu-24.04` VM. Docker is
 preinstalled. It checks Docker client/daemon access, installs project
 dependencies, then invokes `ci/docker-suite.sh` and always uploads the
 `vigilia-docker-pilot-<run>-<attempt>` artifact. Separate per-module
@@ -222,19 +239,16 @@ The DinD TLS client key is not mounted into tested containers.
 
 ## Validation and evidence
 
-After applying the patch, push `ci/regression-integration` to both remotes.
-If a module fails, download the **Docker job artifact** even if the other
-profiles pass, and inspect the module-specific logs and `summary.tsv`. The
+After starting a manual focused run, download the **Docker job artifact**
+if any selected module fails, and inspect the module-specific logs and `summary.tsv`. The
 REST artifact downloader supports the `docker` profile, including artifacts
 from failed pipelines, when invoked with `--mode latest` or a specific
-run/pipeline ID. The default selection still targets smoke and regression
+run/pipeline ID. The default selection now targets full
 results from successful pipelines.
 
-The Docker jobs intentionally fail when any selected module fails. Do not infer
-successful Docker coverage from a green `smoke` or `regression` job. The
-separately configured `full` jobs already use the same unfiltered selection
-as local `bin/vigilia`; their remaining legacy prerequisites and hosted
-results must still be validated.
+Focused Docker jobs intentionally fail when any selected module fails. Do not infer
+successful Docker coverage from a green `smoke` or `regression` job. The `full` jobs use the same unfiltered selection as local `bin/vigilia`
+and passed at revision `43bb8aa85c76`.
 
 References:
 - GitHub hosted runners: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
@@ -308,10 +322,10 @@ modules together, retaining dependencies such as preparation/reparation
 between modules and the `vigilia-image` created by a preceding module.
 This is essential for matching the semantics of local `bin/vigilia`.
 
-The 22-module Docker suite stays in place as a verified baseline, providing
-per-module diagnostics even if an additional legacy full-suite assertion
-fails. The full jobs are **not** presumed to pass until both hosted runners
-have produced successful native reports; the first runs are diagnostic.
+The historical 22-module Docker suite remains available as an **opt-in**
+diagnostic tool, but its committed selection list is empty and it is not
+scheduled on normal pushes. Both hosted full jobs passed all 36 modules and
+256 enabled assertions at revision `43bb8aa85c76`.
 
 ```sh
 automation-workflow ci artifacts_download full -- --mode latest-wait --wait-timeout 7200

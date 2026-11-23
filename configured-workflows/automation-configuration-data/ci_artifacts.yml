@@ -4,9 +4,9 @@ ci_artifacts:
   providers:
     - github
     - gitlab
+  # The full job is the only automatic trusted-branch quality gate.
   profiles:
-    - smoke
-    - regression
+    - full
   github:
     repository: neurospaces-development/workflow-vigilia
     workflow: regression-tests.yml

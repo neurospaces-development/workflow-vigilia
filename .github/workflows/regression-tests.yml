@@ -9,19 +9,28 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      docker_modules:
+        description: 'Optional focused Docker modules (comma-separated paths relative to vigilia/specifications/)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   regression-tests:
+    # The unfiltered full job already covers these tests on trusted pushes.
+    # Keep a fast, non-Docker check for pull requests only.
+    if: github.event_name == 'pull_request'
     name: Vigilia ${{ matrix.profile }} (Ubuntu 24.04)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        profile: [smoke, regression]
+        profile: [regression]
     env:
       CI_RESULTS_DIR: ${{ github.workspace }}/ci-results
       VIGILIA_TEST_PROFILE: ${{ matrix.profile }}
@@ -87,16 +96,16 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # Serial Docker module suite. Do not broaden the regular test matrix:
-  # the full unfiltered suite still needs remote and privileged dependencies.
-  # Run only on the trusted integration branch (never on pull requests).
+  # Explicit, focused investigations only; never repeat the full test suite
+  # on routine pushes. workflow_dispatch is initiated by repository editors.
   docker-pilot:
-    name: Vigilia Docker module suite (Ubuntu 24.04)
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/ci/regression-integration'
+    name: Vigilia focused Docker modules (Ubuntu 24.04)
+    if: github.event_name == 'workflow_dispatch' && inputs.docker_modules != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CI_RESULTS_DIR: ${{ github.workspace }}/ci-results
+      VIGILIA_DOCKER_MODULES: ${{ inputs.docker_modules }}
 
     steps:
       - name: Check out source
@@ -153,13 +162,11 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # Full knowledge-base test, independent of the passing serial Docker suite.
-  # No regex or tag exclusions: run the same modules as local `bin/vigilia`.
-  # This job is initially diagnostic: failures are reported and artifacts
-  # retained rather than weakening or disabling legacy specifications.
+  # Authoritative quality gate on trusted pushes, without a parallel Docker
+  # subset or smoke/regression matrix. Never execute privileged full on PRs.
   full-tests:
     name: Vigilia full knowledge base (Ubuntu 24.04)
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/ci/regression-integration'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ci/regression-integration')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:

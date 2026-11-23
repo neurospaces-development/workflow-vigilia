@@ -1,6 +1,6 @@
-# GitLab.com hosted-runner pilot; does not require a dedicated shell runner.
-# Run separate non-Docker smoke and regression profiles using the same CI entry point.
-# During the pilot, run only on named branches. Untrusted merge-request code
+# Hosted CI: full, unfiltered Vigilia testing on trusted branch pushes.
+# Focused smoke/regression or Docker tests can be launched manually.
+# Untrusted merge-request code
 # must not receive passwordless sudo in a privileged CI job container.
 # GitLab's Ubuntu job container starts as root, while ci/test.sh deliberately
 # refuses to run as root. Bootstrap an unprivileged account within the
@@ -8,14 +8,19 @@
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == "ci/regression-integration")'
+    # Developers may manually start focused tests on other branches.
+    - if: '$CI_PIPELINE_SOURCE == "web"'
 
 stages:
   - test
 
 vigilia-regression:
   stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
   image: ubuntu:24.04
   timeout: 60 minutes
   parallel:
@@ -94,8 +99,8 @@ vigilia-regression:
     paths:
       - ci-results/
 
-# Serial Docker-in-Docker module suite; smoke/regression remain unchanged. Restrict
-# the privileged DinD service to the trusted integration branch, not MRs.
+# Opt-in Docker-in-Docker diagnostics, never a duplicate automatic full run.
+# Manual pipelines may be started by trusted developers on development branches.
 # GitLab.com's saas-linux-small-amd64 hosted runner supports privileged DinD.
 vigilia-docker-pilot:
   stage: test
@@ -104,7 +109,9 @@ vigilia-docker-pilot:
     - saas-linux-small-amd64
   timeout: 90 minutes
   rules:
-    - if: '$CI_COMMIT_BRANCH == "ci/regression-integration"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
   # Ubuntu 24.04 currently supplies Docker CLI 29.1.3, which can talk
   # to Engine 28.5.2 (API 1.51). The Docker-role test image additionally
   # installs Debian Bookworm's Docker 20.10 CLI (API 1.41). Engine 29
@@ -232,6 +239,7 @@ vigilia-docker-pilot:
           DOCKER_HOST="$DOCKER_HOST" \
           DOCKER_TLS_VERIFY="$DOCKER_TLS_VERIFY" \
           DOCKER_CERT_PATH="$cert_dir" \
+          VIGILIA_DOCKER_MODULES="${VIGILIA_DOCKER_MODULES:-}" \
           ./ci/docker-suite.sh
       fi
   artifacts:
@@ -242,10 +250,12 @@ vigilia-docker-pilot:
     paths:
       - ci-results/
 
-# Full, unfiltered knowledge-base execution. Inherits the same trusted-branch
-# rule and disposable Docker-in-Docker/TLS bootstrap as vigilia-docker-pilot.
+# Full, unfiltered knowledge-base execution on trusted branch pushes only.
+# Reuse the same disposable DinD bootstrap but override the parent's manual rule.
 vigilia-full:
   extends: vigilia-docker-pilot
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == "ci/regression-integration")'
   timeout: 90 minutes
   variables:
     VIGILIA_DOCKER_EXECUTION: full

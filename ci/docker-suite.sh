@@ -5,39 +5,67 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: %s [--test-only]\n' "$0" >&2
-    printf 'Set VIGILIA_DOCKER_MODULES_FILE to override ci/docker-suite.modules.\n' >&2
+    printf 'Usage: %s [--test-only] [--module PATH ...]\n' "$0" >&2
+    printf '  Or set VIGILIA_DOCKER_MODULES to comma-separated module paths.\n' >&2
+    printf '  Or set VIGILIA_DOCKER_MODULES_FILE to a newline-delimited list.\n' >&2
+    printf '  Without a selection, the focused suite deliberately does not run.\n' >&2
 }
 
 test_only=0
-case ${1:-} in
-    '') ;;
-    --test-only) test_only=1; shift ;;
-    *) usage; exit 2 ;;
-esac
-(( $# == 0 )) || { usage; exit 2; }
+declare -a command_line_modules=()
+while (( $# )); do
+    case $1 in
+        --test-only) test_only=1; shift ;;
+        --module)
+            if (( $# < 2 )); then usage; exit 2; fi
+            command_line_modules+=("$2")
+            shift 2
+            ;;
+        *) usage; exit 2 ;;
+    esac
+done
 
 cd -- "$(dirname -- "$0")/.."
 repository_root=$PWD
 modules_file=${VIGILIA_DOCKER_MODULES_FILE:-"$repository_root/ci/docker-suite.modules"}
-if [[ ! -f $modules_file ]]; then
-    printf 'Missing Docker suite module list: %s\n' "$modules_file" >&2
+# Accept exactly one selection source. All sources share the same strict path
+# validation, so manual CI input cannot be interpreted as shell commands.
+declare -a raw_modules=()
+if (( ${#command_line_modules[@]} )) &&
+   [[ -n ${VIGILIA_DOCKER_MODULES:-}${VIGILIA_DOCKER_MODULES_FILE:-} ]]; then
+    echo 'Use only one of --module, VIGILIA_DOCKER_MODULES, or VIGILIA_DOCKER_MODULES_FILE.' >&2
     exit 2
 fi
+if [[ -n ${VIGILIA_DOCKER_MODULES:-} && -n ${VIGILIA_DOCKER_MODULES_FILE:-} ]]; then
+    echo 'Use only one Docker module selection source.' >&2
+    exit 2
+fi
+if (( ${#command_line_modules[@]} )); then
+    raw_modules=("${command_line_modules[@]}")
+elif [[ -n ${VIGILIA_DOCKER_MODULES:-} ]]; then
+    # GitHub workflow_dispatch and GitLab pipeline variables accept a simple
+    # comma-separated list, independent of a tracked module-selection file.
+    selection=${VIGILIA_DOCKER_MODULES//$'\n'/,}
+    IFS=, read -r -a raw_modules <<< "$selection"
+else
+    if [[ ! -f $modules_file ]]; then
+        printf 'Missing Docker suite module list: %s\n' "$modules_file" >&2
+        exit 2
+    fi
+    while IFS= read -r module || [[ -n $module ]]; do
+        [[ $module =~ ^[[:space:]]*(#|$) ]] && continue
+        raw_modules+=("$module")
+    done < "$modules_file"
+fi
 
-# Validate the entire configuration before running any module. A plain source
-# pathname is less error-prone than asking CI operators to maintain regexes.
+# Validate the entire selection before running anything.
 declare -a modules=()
 declare -A visited=()
-line_number=0
-while IFS= read -r module || [[ -n $module ]]; do
-    (( line_number += 1 ))
-    [[ $module =~ ^[[:space:]]*(#|$) ]] && continue
+for module in "${raw_modules[@]}"; do
     if [[ ! $module =~ ^[a-zA-Z0-9_./-]+$ ]] ||
        [[ $module == /* ]] || [[ $module == *..* ]] ||
        [[ $module == *'/./'* ]]; then
-        printf 'Invalid Docker suite module path at %s:%d: %s\n' \
-            "$modules_file" "$line_number" "$module" >&2
+        printf 'Invalid Docker suite module path: %s\n' "$module" >&2
         exit 2
     fi
     case $module in
@@ -54,9 +82,9 @@ while IFS= read -r module || [[ -n $module ]]; do
     fi
     visited[$module]=1
     modules+=("$module")
-done < "$modules_file"
+done
 if (( ${#modules[@]} == 0 )); then
-    echo 'Docker suite must select at least one module.' >&2
+    echo 'Docker suite requires at least one explicitly selected module (--module, VIGILIA_DOCKER_MODULES or VIGILIA_DOCKER_MODULES_FILE).' >&2
     exit 2
 fi
 

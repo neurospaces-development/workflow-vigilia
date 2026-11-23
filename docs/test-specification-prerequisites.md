@@ -4,15 +4,16 @@ This document classifies the **execution requirements**, rather than the
 publication value, of the `vigilia` product knowledge base. Paths below are
 relative to `vigilia/specifications/`. The inventory reflects the repository
 through the addition of the `full` CI jobs in patch 0048 (36 modules in
-all). It is a source-level audit, **not** a claim that every module passes on
-hosted runners. The current provider/job architecture is documented in
+all). Both hosted full jobs subsequently passed all 36 modules and 256 enabled
+assertions at revision `43bb8aa85c76`; this inventory remains a description
+of technical prerequisites, not a guarantee about future changes. The current provider/job architecture is documented in
 [CI/CD architecture and operation](ci-cd-architecture.md).
 
 The authoritative test material is the specification itself. A module used
 to generate a manual or tutorial must also remain part of the unfiltered test
 knowledge base; documentation-specific tags must not remove it from testing.
-`ci/docker-suite.modules` is a *temporary, incremental execution list*, not a
-second copy of the specification or the definition of the final `full` suite.
+`ci/docker-suite.modules` is an **empty-by-default focused-testing list**,
+not a second source of truth or the definition of `full`.
 
 ## Execution model and common prerequisites
 
@@ -20,14 +21,15 @@ second copy of the specification or the definition of the final `full` suite.
   selector) discovers the whole knowledge base. This defines the intended
   selection semantics of CI/CD `full`; it does not mean that every dependency
   is already provisioned locally or in CI.
-- **Hosted native smoke/regression:** `ci/test.sh` builds and installs the
+- **Opt-in native smoke/regression:** `ci/test.sh` builds and installs the
   checkout and runs the requested selection. The package needs Perl and its
   required modules, Python for the CI helpers, the build toolchain, and the
   shell utilities installed by `ci/install-dependencies.sh`. Native reports
   distinguish discovered, selected and executed command tests.
-- **Hosted Docker suite:** `ci/docker-suite.sh` selects paths in
-  [`ci/docker-suite.modules`](../ci/docker-suite.modules), runs them *one at
-  a time* via `ci/test.sh`, and records independent reports and Docker logs.
+- **Focused Docker suite:** `ci/docker-suite.sh` accepts explicit `--module`
+  paths, `VIGILIA_DOCKER_MODULES` or an alternate
+  [`ci/docker-suite.modules`](../ci/docker-suite.modules) file, runs selected
+  modules *one at a time* via `ci/test.sh`, and records reports and logs.
   Each module needs its Dockerfile, a working daemon and permission to build
   images, create networks, start containers, and use `docker exec -it`.
 - **Docker platforms differ:** GitHub Actions uses the daemon on its Ubuntu
@@ -58,7 +60,7 @@ second copy of the specification or the definition of the final `full` suite.
 
 An unsuccessful pipeline alone cannot distinguish the last three cases.
 
-## Hosted Docker suite: 22 modules (both platforms verified)
+## Historical focused Docker baseline: 22 modules (both platforms verified)
 
 At revision `6d00bee29480b91157a1db6a858e818bec7b4613`, **all 22
 modules and 149 enabled assertions passed on both GitHub Actions and GitLab
@@ -117,7 +119,7 @@ suite passed **22 modules and 149 enabled assertions** on **both** hosted
 platforms. GitHub's Docker-role image-build timeout was increased to 900 s
 without changing its expected output.
 
-The new `full` CI jobs execute all **36 discovered modules in one `vigilia`
+The verified `full` CI jobs execute all **36 discovered modules in one `vigilia`
 run**, with the same unfiltered module selection as plain local `bin/vigilia`
 when using the same specification configuration. The runtime environment may
 differ. There is no separate curated selection list. In particular, `20_preparation.t` and
@@ -126,7 +128,7 @@ so independently invoking them through the positive-assertion CI gate is not
 equivalent to testing the full knowledge base. `15_docker_creator.t` creates
 an image needed by `41_docker_creator_output_formats.t` and `50_merges.t`.
 
-The first full jobs should be treated as **diagnostic executions**. The 14
+The first full jobs passed at revision `43bb8aa85c76` on both platforms. The 14
 previously unselected modules have not all passed on hosted runners; some
 may require fixes to legacy expected output, package provisioning or image
 setup. Full-suite failures remain failing CI jobs, and logs are preserved.
