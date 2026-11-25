@@ -48,7 +48,7 @@ def git_rewrite_completor(command, argv, analysis):
 
 #     print_to_stderr(f"command: {command}\n  argv: {argv}")
 
-    return _builtin_completor_expander({
+    return _completor_generic_expander({
         "analysis": analysis,
         "complete_arguments_array": argv,
         "operation_path": [ "git", "rewrite" ],
