@@ -5312,6 +5312,11 @@ sub file_content_read
 
     use IO::File;
 
+    # First try the local filesystem.  This preserves the historical
+    # behaviour and is the correct source both for fixture files (for
+    # example an 'expected_output_file' kept under the specification tree)
+    # and for tests that run without a harness.
+
     my $file = IO::File->new("<$filename");
 
     if ($file)
@@ -5321,25 +5326,47 @@ sub file_content_read
 	$content = <$file>;
 
 	$file->close();
+
+	return $content;
     }
-    else
+
+    # The file is not on the local filesystem.  When the command under
+    # test runs inside a harness (for example a Docker container, possibly
+    # treated as a remote), an 'application_output_file' it produced lives
+    # there, not here, so read it through the harness instead of failing.
+
+    my $harness = $execution_context->harness_current();
+
+    if ($harness
+	and $harness->can('hs_file_content_read'))
     {
-	my $module_definition = $execution_context->get_module_definition();
+	my $command_definition = $execution_context->get_command_definition();
 
-	my $module_name = $module_definition->{name};
+	$content = $harness->hs_file_content_read($filename, $command_definition, $execution_context);
 
-	my $reporter = $execution_context->{reporter};
-
-	$reporter->report_error_add
-	    (
-	     {
-	      context_path => $execution_context->get_context_path(),
-	      description => "file open error for $description",
-	      error => "$description cannot open file $filename",
-	      module_name => $module_name,
-	     },
-	    );
+	if (defined $content)
+	{
+	    return $content;
+	}
     }
+
+    # Neither the local filesystem nor the harness could provide the file.
+
+    my $module_definition = $execution_context->get_module_definition();
+
+    my $module_name = $module_definition->{name};
+
+    my $reporter = $execution_context->{reporter};
+
+    $reporter->report_error_add
+	(
+	 {
+	  context_path => $execution_context->get_context_path(),
+	  description => "file open error for $description",
+	  error => "$description cannot open file $filename",
+	  module_name => $module_name,
+	 },
+	);
 
     return $content;
 }
@@ -7627,6 +7654,46 @@ sub _generate_command_prefix
     my $command_prefix = [ @$prefix_docker, @$prefix_user, $container_name, @$prefix_command, ];
 
     return $command_prefix;
+}
+
+
+sub hs_file_content_read
+{
+    my $self = shift;
+
+    my $filename = shift;
+
+    my $command_definition = shift;
+
+    my $execution_context = shift;
+
+    # Reuse the very command prefix that runs test commands inside this
+    # harness (for example 'docker exec -it --user U NAME bash -ic'), so a
+    # file produced inside the harness can be read back for comparison by
+    # 'application_output_file'.  Docker::Remote inherits this method and
+    # reads the file from inside the container.
+
+    my $command_prefix = $self->_generate_command_prefix($command_definition, $execution_context);
+
+    # The prefix ends with the inner shell ('bash -ic'), which takes a
+    # single command-string argument.  Wrap 'cat' in double quotes and
+    # single-quote the filename inside, matching the quoting convention used
+    # elsewhere for harnessed commands.  Filenames are ordinary paths; a
+    # name containing a single or double quote is not supported here.
+
+    my $command = join(' ', @$command_prefix) . " \"cat -- '$filename'\"";
+
+    my $content = `$command`;
+
+    # A non-zero status means the file could not be read through the
+    # harness; let the caller fall through to its error reporting.
+
+    if ($?)
+    {
+	return undef;
+    }
+
+    return $content;
 }
 
 
